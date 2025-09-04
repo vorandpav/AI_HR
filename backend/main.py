@@ -1,4 +1,3 @@
-# backend/main.py
 import io
 import mimetypes
 import random
@@ -7,11 +6,13 @@ from urllib.parse import quote
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from . import models, database, schemas
+from . import database, schemas
+import models
 from sqlalchemy.exc import OperationalError
 import asyncio
 import logging
 from fastapi import Header
+from urllib.parse import unquote
 
 logger = logging.getLogger("uvicorn.error")
 app = FastAPI()
@@ -65,7 +66,7 @@ async def create_vacancy(
     vacancy = models.Vacancy(
         title=title,
         description=description,
-        file_name=filename,
+        file_name=unquote(filename),
         file_data=file_bytes,
         telegram_username=telegram_username
     )
@@ -91,7 +92,7 @@ async def upload_resume(
 
         resume = models.Resume(
             vacancy_id=vacancy_id,
-            original_filename=file.filename,
+            original_filename=unquote(file.filename),
             file_data=file_bytes,
             telegram_username=telegram_username
         )
@@ -149,7 +150,7 @@ def download_resume(resume_id: int, db: Session = Depends(get_db), x_telegram_us
     mime_type = mimetypes.guess_type(resume.original_filename)[0] or "application/octet-stream"
     filename = resume.original_filename or f"resume_{resume.id}"
     quoted = quote(filename)
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
+    headers = {"Content-Disposition": f'attachment; filename="{quoted}"; filename*=UTF-8\'\'{quoted}'}
     return StreamingResponse(io.BytesIO(resume.file_data), media_type=mime_type, headers=headers)
 
 

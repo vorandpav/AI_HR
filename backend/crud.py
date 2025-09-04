@@ -1,7 +1,7 @@
-# crud.py (добавить функции)
 import os
 from sqlalchemy.orm import Session
-from . import models, schemas
+from . import schemas
+import models
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)

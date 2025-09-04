@@ -1,4 +1,3 @@
-# bot.py
 import logging
 import os
 import aiohttp
@@ -11,6 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import FSInputFile
 from aiogram.client.default import DefaultBotProperties
 from dotenv import load_dotenv
+from urllib.parse import unquote
 
 load_dotenv()
 
@@ -219,7 +219,10 @@ async def process_vacancy_id(message: types.Message, state: FSMContext):
                 resp.raise_for_status()
                 resumes = await resp.json()
         except Exception as e:
-            await message.answer(f"Ошибка запроса к backend: {e}")
+            if isinstance(e, aiohttp.ClientResponseError) and e.status == 403:
+                await message.answer("У вас нет доступа к этой вакансии.")
+            else:
+                await message.answer(f"Ошибка запроса к backend: {e}")
             return
 
         if not resumes:
@@ -245,17 +248,18 @@ async def process_vacancy_id(message: types.Message, state: FSMContext):
 
             await message.answer(f"Отклик ID: {rid}\nКандидат: {username}\n{sim_text}")
 
-            # файл резюме
             try:
                 async with session.get(f"{BACKEND_URL}/resumes/{rid}/download",
                                        timeout=aiohttp.ClientTimeout(total=10)) as dl:
                     if dl.status == 200:
-                        content = await dl.read()
-                        filename = r.get('original_filename') or f"resume_{rid}.pdf"
-                        tmp_path = f"{rid}_{username}_{filename}"
-                        with open(tmp_path, "wb") as f:
-                            f.write(content)
-                        await message.answer_document(FSInputFile(tmp_path))
+                        file_content = await dl.read()
+
+                        await message.answer_document(
+                            types.BufferedInputFile(
+                                file=file_content,
+                                filename=r.get('original_filename') or f"resume_{rid}.pdf"
+                            )
+                        )
                     else:
                         await message.answer("Не удалось скачать файл резюме.")
             except Exception as e:
@@ -296,6 +300,8 @@ async def process_resume_id(message: types.Message, state: FSMContext):
                     )
                 elif resp.status == 404:
                     await message.answer("Для этого резюме результат ещё не готов.")
+                elif resp.status == 403:
+                    await message.answer("У вас нет доступа к этому резюме.")
                 else:
                     text = await resp.text()
                     await message.answer(f"Ошибка backend ({resp.status}): {text}")
