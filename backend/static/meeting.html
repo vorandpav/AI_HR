@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интервью с ботом</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 90%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h2 {
+            color: #4a5568;
+            margin-bottom: 30px;
+            font-size: 2rem;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .status.info {
+            background: #ebf8ff;
+            color: #3182ce;
+            border: 1px solid #bee3f8;
+        }
+
+        .status.success {
+            background: #f0fff4;
+            color: #38a169;
+            border: 1px solid #c6f6d5;
+        }
+
+        .status.warning {
+            background: #fffbeb;
+            color: #d69e2e;
+            border: 1px solid #fbd38d;
+        }
+
+        .status.error {
+            background: #fed7d7;
+            color: #e53e3e;
+            border: 1px solid #feb2b2;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            margin: 30px 0;
+            justify-content: center;
+        }
+
+        button {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 50px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #startBtn {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+        }
+
+        #stopBtn {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+            color: white;
+        }
+
+        .audio-visualizer {
+            height: 100px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 2px;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 10px;
+        }
+
+        .bar {
+            width: 4px;
+            background: linear-gradient(to top, #667eea, #764ba2);
+            border-radius: 2px 2px 0 0;
+            transition: height 0.1s ease;
+        }
+
+        .recording-indicator {
+            display: none;
+            width: 20px;
+            height: 20px;
+            background: #f56565;
+            border-radius: 50%;
+            margin: 0 auto 20px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.1);
+                opacity: 0.7;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .recording .recording-indicator {
+            display: block;
+        }
+
+        .connection-status {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .connected {
+            background: #48bb78;
+        }
+
+        .disconnected {
+            background: #f56565;
+        }
+
+        .connecting {
+            background: #ecc94b;
+        }
+
+        .timer {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #4a5568;
+            margin: 20px 0;
+        }
+
+        .instructions {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        .instructions h3 {
+            color: #4a5568;
+            margin-bottom: 10px;
+        }
+
+        .instructions ul {
+            padding-left: 20px;
+        }
+
+        .instructions li {
+            margin: 8px 0;
+            color: #718096;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>🎙️ Интервью с ботом</h2>
+
+    <div class="recording-indicator"></div>
+
+    <div id="status" class="status info">
+        <span class="connection-status disconnected"></span>
+        Готов к началу звонка
+    </div>
+
+    <div class="timer" id="timer">00:00</div>
+
+    <div class="buttons">
+        <button id="startBtn">📞 Начать звонок</button>
+        <button id="stopBtn" disabled>⏹️ Завершить</button>
+    </div>
+
+    <div class="audio-visualizer" id="visualizer">
+        <!-- Bars will be generated by JavaScript -->
+    </div>
+
+    <div class="instructions">
+        <h3>📋 Инструкция:</h3>
+        <ul>
+            <li>Нажмите "Начать звонок" для подключения к интервью</li>
+            <li>Разрешите доступ к микрофону в браузере</li>
+            <li>Говорите четко и ясно</li>
+            <li>Нажмите "Завершить" для окончания интервью</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+    let mediaRecorder;
+    let ws;
+    let audioContext;
+    let analyser;
+    let dataArray;
+    let source;
+    let stream;
+    let startTime;
+    let timerInterval;
+    let animationFrame;
+    let hasMicrophonePermission = false;
+
+    // Create visualizer bars
+    const visualizer = document.getElementById('visualizer');
+    for (let i = 0; i < 32; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = '4px';
+        visualizer.appendChild(bar);
+    }
+
+    function updateStatus(message, type = 'info') {
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = message;
+        statusEl.className = `status ${type}`;
+
+        // Update connection status indicator
+        const indicator = statusEl.querySelector('.connection-status') || document.createElement('span');
+        if (!statusEl.querySelector('.connection-status')) {
+            indicator.className = 'connection-status';
+            statusEl.insertBefore(indicator, statusEl.firstChild);
+        }
+
+        if (message.includes('соединен')) {
+            indicator.className = 'connection-status connected';
+        } else if (message.includes('закрыто') || message.includes('ошибк')) {
+            indicator.className = 'connection-status disconnected';
+        } else {
+            indicator.className = 'connection-status connecting';
+        }
+    }
+
+    function updateTimer() {
+        if (startTime) {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const seconds = (elapsed % 60).toString().padStart(2, '0');
+            document.getElementById('timer').textContent = `${minutes}:${seconds}`;
+        }
+    }
+
+    function startTimer() {
+        startTime = Date.now();
+        timerInterval = setInterval(updateTimer, 1000);
+        updateTimer();
+    }
+
+    function stopTimer() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+    }
+
+    function updateVisualizer() {
+        if (analyser && dataArray) {
+            analyser.getByteFrequencyData(dataArray);
+            const bars = document.querySelectorAll('.bar');
+
+            for (let i = 0; i < bars.length; i++) {
+                const value = dataArray[i] || 0;
+                const height = Math.max(4, value / 255 * 80);
+                bars[i].style.height = height + 'px';
+            }
+        }
+
+        animationFrame = requestAnimationFrame(updateVisualizer);
+    }
+
+    // Функция для проверки и запроса доступа к микрофону
+    async function requestMicrophonePermission() {
+        try {
+            updateStatus('🎤 Запрашиваю доступ к микрофону...', 'info');
+
+            // Проверяем, поддерживается ли enumerateDevices
+            if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const hasMicrophone = devices.some(device => device.kind === 'audioinput');
+
+                if (!hasMicrophone) {
+                    throw new Error('Микрофон не найден');
+                }
+            }
+
+            // Запрашиваем доступ к микрофону
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    sampleRate: 44100
+                }
+            });
+
+            hasMicrophonePermission = true;
+            updateStatus('🎤 Доступ к микрофону получен', 'success');
+
+            // Setup audio visualization
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 64;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+            updateVisualizer();
+
+            return true;
+
+        } catch (err) {
+            hasMicrophonePermission = false;
+            updateStatus(`🎤 Ошибка доступа к микрофону: ${err.message}`, 'error');
+            console.error('Microphone error:', err);
+            return false;
+        }
+    }
+
+    // Функция для подготовки звонка (запрос микрофона заранее)
+    async function prepareCall() {
+        updateStatus('🎙️ Подготовка к звонку...', 'info');
+
+        const hasPermission = await requestMicrophonePermission();
+        if (!hasPermission) {
+            document.getElementById('startBtn').disabled = false;
+            return false;
+        }
+
+        return true;
+    }
+
+    document.getElementById("startBtn").onclick = async () => {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get("token");
+
+        if (!token) {
+            updateStatus('❌ Не найден токен встречи', 'error');
+            return;
+        }
+
+        try {
+            // Подготовка: запрос доступа к микрофону
+            const isPrepared = await prepareCall();
+            if (!isPrepared) {
+                return;
+            }
+
+            updateStatus('📡 Подключение к серверу...', 'info');
+            document.getElementById('startBtn').disabled = true;
+
+            ws = new WebSocket(`ws://${window.location.host}/call/${token}`);
+            ws.binaryType = "arraybuffer";
+
+            ws.onopen = () => {
+                updateStatus('✅ Соединение установлено', 'success');
+                document.querySelector('.container').classList.add('recording');
+                document.getElementById('stopBtn').disabled = false;
+                startRecording();
+                startTimer();
+            };
+
+            ws.onclose = (event) => {
+                if (event.code == 4002)
+                    updateStatus('❌ Токен уже использован', 'error');
+                else
+                    updateStatus(`❌ Соединение закрыто: ${event.code}`, 'error');
+
+                document.querySelector('.container').classList.remove('recording');
+                stopRecording();
+                stopTimer();
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+            };
+
+            ws.onerror = (error) => {
+                updateStatus('❌ Ошибка WebSocket соединения', 'error');
+                document.getElementById('startBtn').disabled = false;
+            };
+
+            ws.onmessage = async (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    playAudio(event.data);
+                }
+            };
+
+        } catch (err) {
+            updateStatus('❌ Ошибка подключения: ' + err.message, 'error');
+            document.getElementById('startBtn').disabled = false;
+        }
+    };
+
+    function startRecording() {
+        if (!hasMicrophonePermission || !stream) {
+            updateStatus('❌ Микрофон не доступен', 'error');
+            return;
+        }
+
+        try {
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
+                    e.data.arrayBuffer().then(buf => ws.send(buf));
+                }
+            };
+            mediaRecorder.start(100); // Send data every 100ms for better quality
+
+        } catch (err) {
+            updateStatus('❌ Ошибка записи: ' + err.message, 'error');
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+        }
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+        }
+        if (audioContext) {
+            audioContext.close();
+        }
+        if (animationFrame) {
+            cancelAnimationFrame(animationFrame);
+        }
+        hasMicrophonePermission = false;
+        // Reset visualizer
+        document.querySelectorAll('.bar').forEach(bar => {
+            bar.style.height = '4px';
+        });
+    }
+
+    async function playAudio(audioData) {
+        try {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            const decoded = await audioContext.decodeAudioData(audioData);
+            const bufferSource = audioContext.createBufferSource();
+            bufferSource.buffer = decoded;
+            bufferSource.connect(audioContext.destination);
+            bufferSource.start();
+        } catch (err) {
+            console.error("Ошибка воспроизведения:", err);
+        }
+    }
+
+    document.getElementById("stopBtn").onclick = () => {
+        stopRecording();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
+        }
+        updateStatus('⏹️ Звонок завершен', 'info');
+        document.querySelector('.container').classList.remove('recording');
+        stopTimer();
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+    };
+</script>
+</body>
+</html>

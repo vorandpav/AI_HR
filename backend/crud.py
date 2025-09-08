@@ -1,7 +1,6 @@
 import os
 from sqlalchemy.orm import Session
-from . import schemas
-import models
+from . import schemas, models
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
