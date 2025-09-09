@@ -7,21 +7,39 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from .dependencies import get_current_user, can_access_vacancy
 from .. import database, models, schemas
 
 router = APIRouter()
 
 
+@router.get("/", response_model=list[schemas.VacancyResponse])
+def list_vacancies(
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user)
+):
+    vacancies = (
+        db.query(models.Vacancy)
+        .filter(models.Vacancy.telegram_username == user)
+        .order_by(models.Vacancy.created_at.desc())
+        .all()
+    )
+    return vacancies
+
+
 @router.post("/", response_model=schemas.VacancyResponse)
 async def create_vacancy(
-    title: str = Form(...),
-    file: UploadFile = File(None),
-    telegram_username: str = Form(...),
-    telegram_user_id: str = Form(...),
-    db: Session = Depends(database.get_db),
+        title: str,
+        file: UploadFile,
+        telegram_username: str,
+        telegram_user_id: str,
+        db: Session = Depends(database.get_db),
 ):
     file_bytes = await file.read() if file else None
     filename = unquote(file.filename) if file else None
+    MAX_SIZE = 100 * 1024 * 1024
+    if file_bytes and len(file_bytes) > MAX_SIZE:
+        raise HTTPException(status_code=413, detail="Файл слишком большой (макс 100 MB)")
     vacancy = models.Vacancy(
         title=title,
         file_name=filename,
@@ -36,10 +54,12 @@ async def create_vacancy(
 
 
 @router.get("/{vacancy_id}", response_model=schemas.VacancyResponse)
-async def get_vacancy(vacancy_id: int, db: Session = Depends(database.get_db)):
-    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
-    if not vacancy:
-        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+def get_vacancy(
+        vacancy_id: int,
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user)
+):
+    vacancy = can_access_vacancy(vacancy_id, user, db)
     return vacancy
 
 
