@@ -1,46 +1,71 @@
-# backend/routers/similarity.py
-from fastapi import APIRouter, Depends, Header, HTTPException
+import random
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .dependencies import get_current_user, can_access_resume, can_access_vacancy
 from .. import database, models, schemas
 
 router = APIRouter()
 
 
-@router.get("/resume/{resume_id}", response_model=schemas.SimilarityResponse)
-def get_similarity(
-    resume_id: int,
-    db: Session = Depends(database.get_db),
-    x_telegram_user: str | None = Header(None),
+@router.get("/temp/{resume_id}/{vacancy_id}", response_model=schemas.SimilarityResponse)
+def get_similarity_temp(
+        resume_id: int,
+        vacancy_id: int,
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user)
 ):
-    if not x_telegram_user:
-        raise HTTPException(status_code=401, detail="Missing X-Telegram-User header")
-
-    sim = (
-        db.query(models.Similarity)
-        .filter(models.Similarity.resume_id == resume_id)
-        .first()
-    )
-    if not sim:
-        raise HTTPException(status_code=404, detail="Результат не найден")
-
-    resume = db.query(models.Resume).filter(models.Resume.id == resume_id).first()
-    vacancy = (
-        db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    can_access_resume(resume_id, user, db)
+    can_access_vacancy(vacancy_id, user, db)
+    similarity_score = round(random.uniform(0, 1), 3)
+    return schemas.SimilarityResponse(
+        resume_id=resume_id,
+        vacancy_id=vacancy_id,
+        score=similarity_score,
+        comment="Временный случайный результат"
     )
 
-    allowed = (resume.telegram_username == x_telegram_user) or (
-        vacancy and vacancy.telegram_username == x_telegram_user
-    )
-    if not allowed:
-        raise HTTPException(
-            status_code=403, detail="Вы не можете просматривать этот результат"
-        )
 
-    return {
-        "resume_id": sim.resume_id,
-        "vacancy_id": resume.vacancy_id,
-        "score": sim.score,
-        "result_text": sim.result_text,
-        "created_at": sim.created_at,
-    }
+@router.post("/", response_model=schemas.SimilarityResponse)
+def create_similarity(
+        similarity: schemas.SimilarityCreate,
+        db: Session = Depends(database.get_db),
+):
+    existing = db.query(models.Similarity).filter(
+        models.Similarity.resume_id == similarity.resume_id,
+        models.Similarity.vacancy_id == similarity.vacancy_id
+    ).first()
+    if existing:
+        existing.score = similarity.score
+        existing.comment = similarity.comment
+        db.commit()
+        db.refresh(existing)
+        return existing
+    new_similarity = models.Similarity(
+        resume_id=similarity.resume_id,
+        vacancy_id=similarity.vacancy_id,
+        score=similarity.score,
+        comment=similarity.comment
+    )
+    db.add(new_similarity)
+    db.commit()
+    db.refresh(new_similarity)
+    return new_similarity
+
+
+@router.get("/{resume_id}/{vacancy_id}", response_model=schemas.SimilarityResponse)
+def get_similarity(
+        resume_id: int,
+        vacancy_id: int,
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user)
+):
+    can_access_resume(resume_id, user, db)
+    can_access_vacancy(vacancy_id, user, db)
+    similarity = db.query(models.Similarity).filter(
+        models.Similarity.resume_id == resume_id,
+        models.Similarity.vacancy_id == vacancy_id
+    ).first()
+    if not similarity:
+        raise HTTPException(status_code=404, detail="Similarity not found")
+    return similarity

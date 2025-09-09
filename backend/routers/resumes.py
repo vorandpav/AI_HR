@@ -1,10 +1,9 @@
 # backend/routers/resumes.py
 import io
 import mimetypes
-from typing import List
 from urllib.parse import quote, unquote
 
-from fastapi import (APIRouter, Depends, Header, HTTPException,
+from fastapi import (APIRouter, Depends, HTTPException,
                      UploadFile)
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -86,7 +85,7 @@ def get_resume_meetings(
         db: Session = Depends(database.get_db),
         user: str = Depends(get_current_user)
 ):
-    resume = can_access_resume(resume_id, user, db)
+    can_access_resume(resume_id, user, db)
     meetings = (
         db.query(models.Meeting)
         .filter(models.Meeting.resume_id == resume_id)

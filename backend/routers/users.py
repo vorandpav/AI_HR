@@ -1,9 +1,9 @@
-# backend/routers/users.py
 from typing import List
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .dependencies import get_current_user
 from .. import database, models, schemas
 
 router = APIRouter()
@@ -11,29 +11,44 @@ router = APIRouter()
 
 @router.get("/vacancies", response_model=List[schemas.VacancyResponse])
 def list_user_vacancies(
-    db: Session = Depends(database.get_db),
-    x_telegram_user: str | None = Header(None),
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user),
 ):
-    if not x_telegram_user:
-        raise HTTPException(status_code=401, detail="Missing X-Telegram-User header")
-    vacs = (
+    vacancies = (
         db.query(models.Vacancy)
-        .filter(models.Vacancy.telegram_username == x_telegram_user)
+        .filter(models.Vacancy.telegram_username == user)
+        .order_by(models.Vacancy.created_at.desc())
         .all()
     )
-    return vacs
+    return vacancies
 
 
 @router.get("/resumes", response_model=List[schemas.ResumeResponse])
 def list_user_resumes(
-    db: Session = Depends(database.get_db),
-    x_telegram_user: str | None = Header(None),
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user),
 ):
-    if not x_telegram_user:
-        raise HTTPException(status_code=401, detail="Missing X-Telegram-User header")
     resumes = (
         db.query(models.Resume)
-        .filter(models.Resume.telegram_username == x_telegram_user)
+        .filter(models.Resume.telegram_username == user)
+        .order_by(models.Resume.created_at.desc())
         .all()
     )
     return resumes
+
+
+@router.get("/meetings", response_model=List[schemas.MeetingResponse])
+def list_user_meetings(
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user),
+):
+    meetings = (
+        db.query(models.Meeting)
+        .filter(
+            (models.Meeting.organizer_username == user)
+            | (models.Meeting.candidate_username == user)
+        )
+        .order_by(models.Meeting.created_at.desc())
+        .all()
+    )
+    return meetings

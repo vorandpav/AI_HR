@@ -64,15 +64,15 @@ def get_vacancy(
 
 
 @router.get("/{vacancy_id}/download")
-def download_vacancy(vacancy_id: int, db: Session = Depends(database.get_db)):
-    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == vacancy_id).first()
-    if not vacancy or not vacancy.file_data:
+def download_vacancy(
+        vacancy_id: int,
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user)
+):
+    vacancy = can_access_vacancy(vacancy_id, user, db)
+    if not vacancy.file_data:
         raise HTTPException(status_code=404, detail="Файл вакансии не найден")
-
     mime_type = mimetypes.guess_type(vacancy.file_name)[0] or "application/octet-stream"
     quoted = quote(vacancy.file_name or f"vacancy_{vacancy_id}")
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
-
-    return StreamingResponse(
-        io.BytesIO(vacancy.file_data), media_type=mime_type, headers=headers
-    )
+    return StreamingResponse(io.BytesIO(vacancy.file_data), media_type=mime_type, headers=headers)

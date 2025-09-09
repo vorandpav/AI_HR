@@ -1,6 +1,7 @@
-# backend/models.py
-from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer,
-                        LargeBinary, String, Text, func)
+from sqlalchemy import (
+    Boolean, Column, DateTime, Float, ForeignKey, Integer,
+    LargeBinary, String, Text, func
+)
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -14,7 +15,7 @@ class Vacancy(Base):
     title = Column(String, nullable=False)
     file_name = Column(String, nullable=True)
     file_data = Column(LargeBinary, nullable=True)
-    resumes = relationship("Resume", back_populates="vacancy")
+    resumes = relationship("Resume", back_populates="vacancy", cascade="all, delete-orphan")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -27,18 +28,40 @@ class Resume(Base):
     original_filename = Column(String, nullable=False)
     file_data = Column(LargeBinary, nullable=False)
     vacancy = relationship("Vacancy", back_populates="resumes")
-    similarity = relationship("Similarity", back_populates="resume", uselist=False)
-    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    similarities = relationship("Similarity", back_populates="resume", cascade="all, delete-orphan")
+    meetings = relationship("Meeting", back_populates="resume", cascade="all, delete-orphan")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class Similarity(Base):
     __tablename__ = "similarities"
     id = Column(Integer, primary_key=True, index=True)
-    resume_id = Column(Integer, ForeignKey("resumes.id"), nullable=False, unique=True)
+    resume_id = Column(Integer, ForeignKey("resumes.id"), nullable=False)
+    vacancy_id = Column(Integer, ForeignKey("vacancies.id"), nullable=False)
     score = Column(Float, nullable=False)
-    result_text = Column(Text, nullable=True)
-    resume = relationship("Resume", back_populates="similarity")
+    comment = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resume = relationship("Resume", back_populates="similarities")
+    vacancy = relationship("Vacancy")
+
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    resume_id = Column(Integer, ForeignKey("resumes.id"), nullable=False)
+    organizer_username = Column(String, nullable=False)
+    candidate_username = Column(String, nullable=True)
+    is_finished = Column(Boolean, default=False, nullable=False)
+    ended_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_session_id = Column(String, nullable=True, index=True)
+    resume = relationship("Resume", back_populates="meetings")
+    audio_objects = relationship(
+        "AudioObject", back_populates="meeting", cascade="all, delete-orphan"
+    )
+    final_recording_data = Column(LargeBinary, nullable=True)
+    final_recording_filename = Column(String, nullable=True)
 
 
 class AudioChunk(Base):
@@ -62,19 +85,3 @@ class AudioObject(Base):
     size_bytes = Column(Integer, nullable=False)
     is_final = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class Meeting(Base):
-    __tablename__ = "meetings"
-    id = Column(Integer, primary_key=True, index=True)
-    token = Column(String, unique=True, index=True, nullable=False)
-    resume_id = Column(Integer, nullable=False)
-    organizer_username = Column(String, nullable=False)
-    candidate_username = Column(String, nullable=True)
-    is_finished = Column(Boolean, default=False, nullable=False)
-    ended_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_session_id = Column(String, nullable=True, index=True)
-    audio_objects = relationship(
-        "AudioObject", back_populates="meeting", cascade="all, delete-orphan"
-    )
