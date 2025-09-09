@@ -1,12 +1,14 @@
 # tg_bot/handlers/resumes.py
 import tempfile
-from aiogram import Router, F
+
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from tg_bot.backend_client import BackendClient
-from tg_bot.config import BACKEND_URL, API_TOKEN
 from aiogram.types import FSInputFile
+
+from tg_bot.backend_client import BackendClient
+from tg_bot.config import API_TOKEN, BACKEND_URL
 
 router = Router()
 bc = BackendClient(BACKEND_URL)
@@ -49,16 +51,17 @@ async def apply_file_doc(message, state: FSMContext):
     file_bytes = await message.bot.download_file(file_obj.file_path)
 
     try:
-        res = await bc.post_resume(vacancy_id=vacancy_id,
-                                   telegram_username=username,
-                                   telegram_user_id=user_id,
-                                   file_bytes=file_bytes,
-                                   filename=doc.file_name,
-                                   mime=doc.mime_type or "application/octet-stream")
+        res = await bc.post_resume(
+            vacancy_id=vacancy_id,
+            telegram_username=username,
+            telegram_user_id=user_id,
+            file_bytes=file_bytes,
+            filename=doc.file_name,
+            mime=doc.mime_type or "application/octet-stream",
+        )
         await message.answer(
-            f"Резюме отправлено!\n"
-            f"ID резюме: <code>{res['id']}</code>",
-            parse_mode="HTML"
+            f"Резюме отправлено!\n" f"ID резюме: <code>{res['id']}</code>",
+            parse_mode="HTML",
         )
     except Exception as e:
         await message.answer(f"Ошибка при отправке резюме: {e}")
@@ -78,14 +81,17 @@ async def process_resume_id(message, state: FSMContext):
         return
     resume_id = int(message.text.strip())
     try:
-        sim = await bc.get_similarity(resume_id,
-                                      x_telegram_user=message.from_user.username or f"id{message.from_user.id}")
-        vac = await bc.get_vacancy(sim['vacancy_id'])
+        sim = await bc.get_similarity(
+            resume_id,
+            x_telegram_user=message.from_user.username or f"id{message.from_user.id}",
+        )
+        vac = await bc.get_vacancy(sim["vacancy_id"])
         await message.answer(
             f"Резюме ID: {sim['resume_id']}\n"
             f"Вакансия ID: {sim['vacancy_id']}\n"
             f"Вакансия: {vac['title']}\n"
-            f"Соответствие: {sim['score']}%")
+            f"Соответствие: {sim['score']}%"
+        )
     except Exception as e:
         await message.answer(f"Ошибка при запросе: {e}")
     await state.clear()

@@ -1,7 +1,8 @@
 # backend/services/stt_tts_client.py
-import os
-import aiohttp
 import logging
+import os
+
+import aiohttp
 
 logger = logging.getLogger("uvicorn.error")
 

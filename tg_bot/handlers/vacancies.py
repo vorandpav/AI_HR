@@ -1,11 +1,11 @@
 # tg_bot/handlers/vacancies.py
-from aiogram import Router, F
+from aiogram import F, Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+
 from tg_bot.backend_client import BackendClient
 from tg_bot.config import BACKEND_URL
-from aiogram import types
 
 router = Router()
 bc = BackendClient(BACKEND_URL)
@@ -41,16 +41,17 @@ async def vacancy_description_file(message: types.Message, state: FSMContext):
     file_bytes = await message.bot.download_file(file_obj.file_path)
 
     try:
-        res = await bc.post_vacancy(title=title,
-                                    telegram_username=username,
-                                    telegram_user_id=user_id,
-                                    file_bytes=file_bytes,
-                                    filename=doc.file_name,
-                                    mime=doc.mime_type or "application/octet-stream")
+        res = await bc.post_vacancy(
+            title=title,
+            telegram_username=username,
+            telegram_user_id=user_id,
+            file_bytes=file_bytes,
+            filename=doc.file_name,
+            mime=doc.mime_type or "application/octet-stream",
+        )
         await message.answer(
-            f"Вакансия сохранена!\n"
-            f"ID вакансии: <code>{res['id']}</code>",
-            parse_mode="HTML"
+            f"Вакансия сохранена!\n" f"ID вакансии: <code>{res['id']}</code>",
+            parse_mode="HTML",
         )
     except Exception as e:
         await message.answer(f"Ошибка при отправке вакансии: {e}")

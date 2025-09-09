@@ -1,15 +1,15 @@
 # tg_bot/handlers/hr.py
 import tempfile
-from aiogram import types
+
 import aiohttp
-from aiogram import Router, F
+from aiogram import F, Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import FSInputFile
+
 from tg_bot.backend_client import BackendClient
 from tg_bot.config import BACKEND_URL
-from aiogram.types import FSInputFile
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 router = Router()
 bc = BackendClient(BACKEND_URL)
@@ -47,8 +47,9 @@ async def process_vacancy_id(message, state: FSMContext):
     except Exception as e:
         await message.answer(f"Ошибка при получении вакансии: {e}")
         return
-    await message.answer(f"Вакансия: {vacancy.get('title')}\n"
-                         f"ID: {vacancy.get('id')}")
+    await message.answer(
+        f"Вакансия: {vacancy.get('title')}\n" f"ID: {vacancy.get('id')}"
+    )
 
     username = message.from_user.username or f"id{message.from_user.id}"
     try:
@@ -62,15 +63,21 @@ async def process_vacancy_id(message, state: FSMContext):
             candidate = r.get("telegram_username")
             try:
                 sim = await bc.get_similarity(rid, x_telegram_user=username)
-                sim_text = f"Результат: {sim.get('score')}\n{sim.get('result_text', '')}"
+                sim_text = (
+                    f"Результат: {sim.get('score')}\n{sim.get('result_text', '')}"
+                )
             except Exception:
                 sim_text = "Результат ещё не готов."
-            await message.answer(f"ID резюме: {rid}\n"
-                                 f"Кандидат: @{candidate}\n"
-                                 f"{candidate}\n{sim_text}")
+            await message.answer(
+                f"ID резюме: {rid}\n"
+                f"Кандидат: @{candidate}\n"
+                f"{candidate}\n{sim_text}"
+            )
 
             try:
-                data, ctype, cd = await bc.download_resume_bytes(rid, x_telegram_user=username)
+                data, ctype, cd = await bc.download_resume_bytes(
+                    rid, x_telegram_user=username
+                )
                 filename = r.get("original_filename") or f"resume_{rid}"
                 with tempfile.NamedTemporaryFile(delete=False, suffix="") as tmp:
                     tmp.write(data)
@@ -109,16 +116,19 @@ async def arrange_scheduled(message, state: FSMContext):
         await message.answer(f"Ошибка при получении вакансии резюме: {e}")
         return
 
-    await message.answer(f"Вакансия: {vac.get('title')}\n"
-                         f"ID вакансии: {vac.get('id')}\n"
-                         f"Автор резюме: @{rinfo.get('telegram_username')}\n"
-                         f"ID резюме: {resume_id}\n")
+    await message.answer(
+        f"Вакансия: {vac.get('title')}\n"
+        f"ID вакансии: {vac.get('id')}\n"
+        f"Автор резюме: @{rinfo.get('telegram_username')}\n"
+        f"ID резюме: {resume_id}\n"
+    )
     try:
         meeting = await bc.arrange_meeting(resume_id, organizer_username=username)
         base = BACKEND_URL.rstrip("/")
         link = f"{base}/static/meeting.html?token={meeting['token']}"
-        await message.answer(f"Встреча создана.\n"
-                             f"<code>{link}</code>\n", parse_mode="HTML")
+        await message.answer(
+            f"Встреча создана.\n" f"<code>{link}</code>\n", parse_mode="HTML"
+        )
         rinfo = await bc.get_resume(resume_id, x_telegram_user=username)
         candidate_username = rinfo.get("telegram_username")
         candidate_user_id = rinfo.get("telegram_user_id")
@@ -127,25 +137,37 @@ async def arrange_scheduled(message, state: FSMContext):
         if candidate_user_id:
             try:
                 target = int(candidate_user_id)
-                await message.bot.send_message(target, f"Вам назначили интервью:\n"
-                                                       f"<code>{link}</code>\n"
-                                                       f"Вакансия: {vac.get('title')} (ID: {vac.get('id')})",
-                                               parse_mode="HTML")
+                await message.bot.send_message(
+                    target,
+                    f"Вам назначили интервью:\n"
+                    f"<code>{link}</code>\n"
+                    f"Вакансия: {vac.get('title')} (ID: {vac.get('id')})",
+                    parse_mode="HTML",
+                )
                 sent = True
             except Exception as e:
-                await message.answer(f"Не удалось отправить сообщение по ID кандидата: {e}")
+                await message.answer(
+                    f"Не удалось отправить сообщение по ID кандидата: {e}"
+                )
         if not sent and candidate_username:
             try:
                 target = f"@{candidate_username}"
-                await message.bot.send_message(target, f"Вам назначили интервью:"
-                                                       f"<code>{link}</code>\n"
-                                                       f"Вакансия: {vac.get('title')} (ID: {vac.get('id')})",
-                                               parse_mode="HTML")
+                await message.bot.send_message(
+                    target,
+                    f"Вам назначили интервью:"
+                    f"<code>{link}</code>\n"
+                    f"Вакансия: {vac.get('title')} (ID: {vac.get('id')})",
+                    parse_mode="HTML",
+                )
                 sent = True
             except Exception as e:
-                await message.answer(f"Не удалось отправить сообщение по юзернейму кандидата: {e}")
+                await message.answer(
+                    f"Не удалось отправить сообщение по юзернейму кандидата: {e}"
+                )
         if not sent:
-            await message.answer("Не удалось отправить сообщение кандидату: нет его телеграм-юзернейма или ID.")
+            await message.answer(
+                "Не удалось отправить сообщение кандидату: нет его телеграм-юзернейма или ID."
+            )
     except Exception as e:
         await message.answer(f"Ошибка при создании встречи: {e}")
     await state.clear()
@@ -172,34 +194,29 @@ async def process_recording_resume_id(message: types.Message, state: FSMContext)
     username = message.from_user.username or f"id{message.from_user.id}"
 
     try:
-        # 1. Запрашиваем запись у бэкенда
-        # Эта функция теперь точно возвращает (bytes, str, str)
-        recording_data, content_type, content_disposition = await bc.download_recording_by_resume_id(
-            resume_id, username
+        recording_data, content_type, content_disposition = (
+            await bc.download_recording_by_resume_id(resume_id, username)
         )
 
-        # 2. Проверяем, что данные не пустые (дополнительная защита)
         if not recording_data:
-            await message.answer("Ошибка: бэкенд вернул пустой файл. Запись может быть повреждена.")
+            await message.answer(
+                "Ошибка: бэкенд вернул пустой файл. Запись может быть повреждена."
+            )
             await state.clear()
             return
 
-        # 3. Определяем имя файла
         filename = "recording.ogg"
-        if content_disposition and 'filename=' in content_disposition:
+        if content_disposition and "filename=" in content_disposition:
             try:
-                filename_part = content_disposition.split('filename=')[1]
-                filename = filename_part.strip('"\'')
+                filename_part = content_disposition.split("filename=")[1]
+                filename = filename_part.strip("\"'")
             except (IndexError, ValueError):
                 pass
 
-        # 4. Создаем объект BufferedInputFile и отправляем его
-        # Это ключевой момент. Убедимся, что сюда передаются именно байты.
         audio_file = types.BufferedInputFile(recording_data, filename=filename)
 
         await message.answer_document(
-            audio_file,
-            caption=f"Запись встречи по резюме ID {resume_id}"
+            audio_file, caption=f"Запись встречи по резюме ID {resume_id}"
         )
         await message.answer("Запись успешно отправлена!")
 
@@ -207,11 +224,16 @@ async def process_recording_resume_id(message: types.Message, state: FSMContext)
         if e.status == 404:
             await message.answer("Запись для указанного резюме не найдена.")
         elif e.status == 403:
-            await message.answer("Ошибка доступа. У вас нет прав для скачивания этой записи.")
+            await message.answer(
+                "Ошибка доступа. У вас нет прав для скачивания этой записи."
+            )
         else:
-            await message.answer(f"Ошибка сервера при получении записи: {e.status} - {e.message}")
+            await message.answer(
+                f"Ошибка сервера при получении записи: {e.status} - {e.message}"
+            )
     except Exception as e:
-        await message.answer(f"Произошла непредвиденная ошибка при получении записи: {e}")
+        await message.answer(
+            f"Произошла непредвиденная ошибка при получении записи: {e}"
+        )
     finally:
-        # Обязательно очищаем состояние FSM
         await state.clear()

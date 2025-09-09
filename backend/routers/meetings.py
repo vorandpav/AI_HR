@@ -1,14 +1,16 @@
 # backend/routers/meetings.py
 import datetime
-import logging
-import uuid
-import os
-from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
-from typing import List
-from .. import models, schemas, database
-from fastapi.responses import StreamingResponse
 import io
+import logging
+import os
+import uuid
+from typing import List
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from .. import database, models, schemas
 from ..services.minio_client import get_minio_client
 
 router = APIRouter()
@@ -33,24 +35,36 @@ def get_meeting_by_token(token: str):
 def arrange_meeting(
         payload: schemas.MeetingCreate,
         db: Session = Depends(database.get_db),
-        x_telegram_user: str = Depends(get_user)
+        x_telegram_user: str = Depends(get_user),
 ):
-    resume = db.query(models.Resume).filter(models.Resume.id == payload.resume_id).first()
+    resume = (
+        db.query(models.Resume).filter(models.Resume.id == payload.resume_id).first()
+    )
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    vacancy = (
+        db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    )
     if not vacancy:
         raise HTTPException(status_code=404, detail="Vacancy not found")
     if vacancy.telegram_username != x_telegram_user:
-        raise HTTPException(status_code=403, detail="Forbidden: not the owner of vacancy")
+        raise HTTPException(
+            status_code=403, detail="Forbidden: not the owner of vacancy"
+        )
 
-    existing = db.query(models.Meeting).filter(
-        models.Meeting.resume_id == payload.resume_id,
-        models.Meeting.is_finished == False
-    ).first()
+    existing = (
+        db.query(models.Meeting)
+        .filter(
+            models.Meeting.resume_id == payload.resume_id,
+            models.Meeting.is_finished == False,
+        )
+        .first()
+    )
     if existing:
-        raise HTTPException(status_code=400, detail="An active meeting for this resume already exists")
+        raise HTTPException(
+            status_code=400, detail="An active meeting for this resume already exists"
+        )
 
     token = uuid.uuid4().hex
 
@@ -59,7 +73,7 @@ def arrange_meeting(
         resume_id=payload.resume_id,
         organizer_username=x_telegram_user,
         candidate_username=resume.telegram_username,
-        is_finished=False
+        is_finished=False,
     )
     db.add(meeting)
     db.commit()
@@ -92,11 +106,18 @@ def get_meeting(token: str, db: Session = Depends(database.get_db)):
 
 
 @router.get("/user/meetings", response_model=List[schemas.MeetingResponse])
-def list_user_meetings(db: Session = Depends(database.get_db), x_telegram_user: str = Depends(get_user)):
-    meetings = db.query(models.Meeting).filter(
-        (models.Meeting.organizer_username == x_telegram_user) |
-        (models.Meeting.candidate_username == x_telegram_user)
-    ).order_by(models.Meeting.created_at.desc()).all()
+def list_user_meetings(
+        db: Session = Depends(database.get_db), x_telegram_user: str = Depends(get_user)
+):
+    meetings = (
+        db.query(models.Meeting)
+        .filter(
+            (models.Meeting.organizer_username == x_telegram_user)
+            | (models.Meeting.candidate_username == x_telegram_user)
+        )
+        .order_by(models.Meeting.created_at.desc())
+        .all()
+    )
     return meetings
 
 
@@ -104,7 +125,7 @@ def list_user_meetings(db: Session = Depends(database.get_db), x_telegram_user: 
 def download_meeting_recording(
         token: str,
         db: Session = Depends(database.get_db),
-        x_telegram_user: str = Depends(get_user)
+        x_telegram_user: str = Depends(get_user),
 ):
     meeting = db.query(models.Meeting).filter(models.Meeting.token == token).first()
     if not meeting:
@@ -114,35 +135,47 @@ def download_meeting_recording(
             meeting.candidate_username == x_telegram_user
     )
     if not allowed:
-        raise HTTPException(status_code=403, detail="Forbidden: You cannot access this recording")
+        raise HTTPException(
+            status_code=403, detail="Forbidden: You cannot access this recording"
+        )
 
     # Вызываем нашу новую вспомогательную функцию
     return get_recording_response(meeting)
+
 
 def get_recording_response(meeting: models.Meeting):
     """
     Находит финальную запись для встречи и возвращает StreamingResponse.
     """
     if not meeting.last_session_id:
-        raise HTTPException(status_code=404, detail="Запись недоступна для этой встречи (нет session_id)")
+        raise HTTPException(
+            status_code=404,
+            detail="Запись недоступна для этой встречи (нет session_id)",
+        )
 
     db = database.SessionLocal()
     try:
-        final_recording = db.query(models.AudioObject).filter(
-            models.AudioObject.session_id == meeting.last_session_id,
-            models.AudioObject.is_final == True
-        ).first()
+        final_recording = (
+            db.query(models.AudioObject)
+            .filter(
+                models.AudioObject.session_id == meeting.last_session_id,
+                models.AudioObject.is_final == True,
+            )
+            .first()
+        )
     finally:
         db.close()
 
     if not final_recording:
-        raise HTTPException(status_code=404, detail="Финальная запись не найдена для этой встречи")
+        raise HTTPException(
+            status_code=404, detail="Финальная запись не найдена для этой встречи"
+        )
 
     try:
         minio_client = get_minio_client()
         response = minio_client.client.get_object(
             bucket_name=os.getenv("MINIO_BUCKET", "audio"),
-            object_name=final_recording.object_key
+            object_name=final_recording.object_key,
         )
         data = response.read()
 
@@ -150,7 +183,7 @@ def get_recording_response(meeting: models.Meeting):
         return StreamingResponse(
             io.BytesIO(data),
             media_type="audio/ogg",
-            headers={"Content-Disposition": f"attachment; filename={filename}"}
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     except Exception as e:
         logger.error(f"Error downloading recording {final_recording.object_key}: {e}")

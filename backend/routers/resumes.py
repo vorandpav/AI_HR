@@ -1,28 +1,30 @@
 # backend/routers/resumes.py
 import io
 import mimetypes
-import os
 import random
-from urllib.parse import quote, unquote
 from typing import List
-from fastapi.responses import StreamingResponse
+from urllib.parse import quote, unquote
 
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, Header
+from fastapi import (APIRouter, Depends, File, Form, Header, HTTPException,
+                     UploadFile, status)
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from .. import models, schemas, database
-from ..services.minio_client import get_minio_client
+
+from .. import database, models, schemas
 from .meetings import get_recording_response
 
 router = APIRouter()
 
 
-@router.post("/", response_model=schemas.ResumeResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/", response_model=schemas.ResumeResponse, status_code=status.HTTP_201_CREATED
+)
 async def upload_resume(
-        vacancy_id: int = Form(...),
-        file: UploadFile = File(...),
-        telegram_username: str = Form(...),
-        telegram_user_id: str = Form(...),
-        db: Session = Depends(database.get_db)
+    vacancy_id: int = Form(...),
+    file: UploadFile = File(...),
+    telegram_username: str = Form(...),
+    telegram_user_id: str = Form(...),
+    db: Session = Depends(database.get_db),
 ):
     file_bytes = await file.read()
     MAX_SIZE = 30 * 1024 * 1024
@@ -52,9 +54,9 @@ async def upload_resume(
 
 @router.get("/vacancy/{vacancy_id}", response_model=List[schemas.ResumeResponse])
 def get_resumes_for_vacancy(
-        vacancy_id: int,
-        db: Session = Depends(database.get_db),
-        x_telegram_user: str | None = Header(None),
+    vacancy_id: int,
+    db: Session = Depends(database.get_db),
+    x_telegram_user: str | None = Header(None),
 ):
     if not x_telegram_user:
         raise HTTPException(status_code=401, detail="Missing X-Telegram-User header")
@@ -64,9 +66,13 @@ def get_resumes_for_vacancy(
         raise HTTPException(status_code=404, detail="Vacancy not found")
 
     if vacancy.telegram_username != x_telegram_user:
-        raise HTTPException(status_code=403, detail="Forbidden: you are not owner of this vacancy")
+        raise HTTPException(
+            status_code=403, detail="Forbidden: you are not owner of this vacancy"
+        )
 
-    resumes = db.query(models.Resume).filter(models.Resume.vacancy_id == vacancy_id).all()
+    resumes = (
+        db.query(models.Resume).filter(models.Resume.vacancy_id == vacancy_id).all()
+    )
     return resumes
 
 
@@ -80,9 +86,9 @@ def get_resume_info(resume_id: int, db: Session = Depends(database.get_db)):
 
 @router.get("/{resume_id}/download")
 def download_resume(
-        resume_id: int,
-        db: Session = Depends(database.get_db),
-        x_telegram_user: str | None = Header(None),
+    resume_id: int,
+    db: Session = Depends(database.get_db),
+    x_telegram_user: str | None = Header(None),
 ):
     if not x_telegram_user:
         raise HTTPException(status_code=401, detail="Missing X-Telegram-User header")
@@ -91,25 +97,33 @@ def download_resume(
     if not resume:
         raise HTTPException(404, "Резюме не найдено")
 
-    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    vacancy = (
+        db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    )
     allowed = (resume.telegram_username == x_telegram_user) or (
-            vacancy and vacancy.telegram_username == x_telegram_user
+        vacancy and vacancy.telegram_username == x_telegram_user
     )
     if not allowed:
-        raise HTTPException(status_code=403, detail="Forbidden: you cannot download this resume")
+        raise HTTPException(
+            status_code=403, detail="Forbidden: you cannot download this resume"
+        )
 
-    mime_type = mimetypes.guess_type(resume.original_filename)[0] or "application/octet-stream"
+    mime_type = (
+        mimetypes.guess_type(resume.original_filename)[0] or "application/octet-stream"
+    )
     quoted = quote(resume.original_filename or f"resume_{resume_id}")
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
 
-    return StreamingResponse(io.BytesIO(resume.file_data), media_type=mime_type, headers=headers)
+    return StreamingResponse(
+        io.BytesIO(resume.file_data), media_type=mime_type, headers=headers
+    )
 
 
 @router.get("/{resume_id}/recording")
 def download_recording_by_resume(
-        resume_id: int,
-        db: Session = Depends(database.get_db),
-        x_telegram_user: str = Header(None),
+    resume_id: int,
+    db: Session = Depends(database.get_db),
+    x_telegram_user: str = Header(None),
 ):
     if not x_telegram_user:
         raise HTTPException(status_code=401, detail="Missing X-Telegram-User header")
@@ -118,23 +132,33 @@ def download_recording_by_resume(
     if not resume:
         raise HTTPException(status_code=404, detail="Резюме не найдено")
 
-    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    vacancy = (
+        db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
+    )
     if not vacancy:
         raise HTTPException(status_code=404, detail="Вакансия для резюме не найдена")
 
     allowed = (resume.telegram_username == x_telegram_user) or (
-            vacancy.telegram_username == x_telegram_user
+        vacancy.telegram_username == x_telegram_user
     )
     if not allowed:
-        raise HTTPException(status_code=403, detail="Forbidden: you cannot access this recording")
+        raise HTTPException(
+            status_code=403, detail="Forbidden: you cannot access this recording"
+        )
 
-    meeting = db.query(models.Meeting).filter(
-        models.Meeting.resume_id == resume_id,
-        models.Meeting.is_finished == True
-    ).order_by(models.Meeting.created_at.desc()).first()
+    meeting = (
+        db.query(models.Meeting)
+        .filter(
+            models.Meeting.resume_id == resume_id, models.Meeting.is_finished == True
+        )
+        .order_by(models.Meeting.created_at.desc())
+        .first()
+    )
 
     if not meeting:
-        raise HTTPException(status_code=404, detail="Завершенная встреча для этого резюме не найдена")
+        raise HTTPException(
+            status_code=404, detail="Завершенная встреча для этого резюме не найдена"
+        )
 
     # Вызываем нашу новую вспомогательную функцию
     return get_recording_response(meeting)

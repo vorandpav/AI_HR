@@ -1,15 +1,18 @@
 # backend/services/audio_store.py
+import logging
 import time
 import uuid
 from typing import Dict
-from .. import models, database
+
+from .. import database, models
 from .minio_client import get_minio_client
-import logging
 
 logger = logging.getLogger("uvicorn.error")
 
 
-def save_audio_chunk_sync(data: bytes, session_id: str, role: str, content_type: str = "audio/webm") -> Dict:
+def save_audio_chunk_sync(
+    data: bytes, session_id: str, role: str, content_type: str = "audio/webm"
+) -> Dict:
     """
     Синхронная функция: сохраняет байты аудио в MinIO и создает запись AudioObject в БД.
     Вызывается через anyio.to_thread.run_sync.
@@ -21,11 +24,14 @@ def save_audio_chunk_sync(data: bytes, session_id: str, role: str, content_type:
         content_type: MIME-тип аудио файла.
     """
     if not data:
-        logger.warning(f"Attempted to save empty audio chunk for session {session_id}, role {role}")
+        logger.warning(
+            f"Attempted to save empty audio chunk for session {session_id}, role {role}"
+        )
         return None
 
     logger.debug(
-        f"Saving audio chunk: {len(data)} bytes, session_id: {session_id}, role: {role}, content_type: {content_type}")
+        f"Saving audio chunk: {len(data)} bytes, session_id: {session_id}, role: {role}, content_type: {content_type}"
+    )
 
     try:
         minio = get_minio_client()
@@ -46,7 +52,7 @@ def save_audio_chunk_sync(data: bytes, session_id: str, role: str, content_type:
                 role=role,  # Сохраняем роль
                 duration_sec=None,  # Пока не определяем
                 size_bytes=len(data),
-                is_final=False  # Чанк, не финальный файл
+                is_final=False,  # Чанк, не финальный файл
             )
             db.add(ao)
             db.commit()
@@ -57,10 +63,15 @@ def save_audio_chunk_sync(data: bytes, session_id: str, role: str, content_type:
                 "object_key": ao.object_key,
                 "size_bytes": ao.size_bytes,
                 "created_at": ao.created_at,
-                "role": ao.role
+                "role": ao.role,
             }
         finally:
             db.close()
     except Exception as e:
-        logger.exception("Failed to save audio chunk (session_id=%s, role=%s): %s", session_id, role, e)
+        logger.exception(
+            "Failed to save audio chunk (session_id=%s, role=%s): %s",
+            session_id,
+            role,
+            e,
+        )
         raise  # Перебрасываем исключение, чтобы вызывающая функция могла обработать ошибку

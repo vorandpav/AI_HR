@@ -1,15 +1,16 @@
 # tg_bot/run.py
 import asyncio
 import logging
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from tg_bot.config import API_TOKEN
 from tg_bot.handlers.common import router as common_router
-from tg_bot.handlers.vacancies import router as vac_router
-from tg_bot.handlers.resumes import router as res_router
 from tg_bot.handlers.hr import router as hr_router
+from tg_bot.handlers.resumes import router as res_router
+from tg_bot.handlers.vacancies import router as vac_router
 
 logging.basicConfig(level=logging.INFO)
 

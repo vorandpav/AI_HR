@@ -1,6 +1,8 @@
 # backend/models.py
-from sqlalchemy import Column, Integer, String, LargeBinary, DateTime, Float, Text, ForeignKey, Boolean, func
+from sqlalchemy import (Boolean, Column, DateTime, Float, ForeignKey, Integer,
+                        LargeBinary, String, Text, func)
 from sqlalchemy.orm import relationship
+
 from .database import Base
 
 
@@ -73,4 +75,6 @@ class Meeting(Base):
     ended_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_session_id = Column(String, nullable=True, index=True)
-    audio_objects = relationship("AudioObject", back_populates="meeting", cascade="all, delete-orphan")
+    audio_objects = relationship(
+        "AudioObject", back_populates="meeting", cascade="all, delete-orphan"
+    )

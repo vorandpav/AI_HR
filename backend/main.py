@@ -1,13 +1,14 @@
-from fastapi import FastAPI
-import logging
 import asyncio
-from sqlalchemy.exc import OperationalError
-import anyio
-from fastapi.staticfiles import StaticFiles
-from .utils import s3_async
+import logging
 
-from . import models, database
-from .routers import vacancies, resumes, similarity, users, meetings, ws
+import anyio
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import OperationalError
+
+from . import database, models
+from .routers import meetings, resumes, similarity, users, vacancies, ws
+from .utils import s3_async
 
 logger = logging.getLogger("uvicorn.error")
 app = FastAPI()
@@ -30,4 +31,3 @@ app.include_router(meetings.router, prefix="", tags=["meetings"])
 app.include_router(ws.router, prefix="", tags=["call"])
 
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")
-

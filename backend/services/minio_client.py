@@ -1,8 +1,9 @@
 import io
 import os
+
 from minio import Minio
-from minio.error import S3Error
 from minio.deleteobjects import DeleteObject
+from minio.error import S3Error
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minio")
@@ -17,7 +18,7 @@ class MinioClient:
             MINIO_ENDPOINT,
             access_key=MINIO_ACCESS_KEY,
             secret_key=MINIO_SECRET_KEY,
-            secure=MINIO_SECURE
+            secure=MINIO_SECURE,
         )
         # --- БОЛЕЕ НАДЁЖНЫЙ БЛОК ---
         try:
@@ -34,7 +35,12 @@ class MinioClient:
                 # Если ошибка другая, то это реальная проблема, и ее нужно пробросить дальше.
                 raise
 
-    def put_bytes(self, object_name: str, data: bytes, content_type: str = "application/octet-stream"):
+    def put_bytes(
+        self,
+        object_name: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+    ):
         data_io = io.BytesIO(data)
         data_io.seek(0)
         self.client.put_object(
@@ -42,7 +48,7 @@ class MinioClient:
             object_name=object_name,
             data=data_io,
             length=len(data),
-            content_type=content_type
+            content_type=content_type,
         )
 
     # --- ДОБАВЛЕННЫЙ МЕТОД ---
