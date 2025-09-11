@@ -1,87 +1,105 @@
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer,
-    LargeBinary, String, Text, func
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Float,
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from .database import Base
 
 
 class Vacancy(Base):
+    """Модель вакансии."""
     __tablename__ = "vacancies"
+
     id = Column(Integer, primary_key=True, index=True)
-    telegram_username = Column(String, nullable=True)
-    telegram_user_id = Column(String, nullable=True)
     title = Column(String, nullable=False)
-    file_name = Column(String, nullable=True)
-    file_data = Column(LargeBinary, nullable=True)
-    resumes = relationship("Resume", back_populates="vacancy", cascade="all, delete-orphan")
+    telegram_username = Column(String, index=True)
+    telegram_user_id = Column(String, index=True)
+    original_filename = Column(String)
+    object_key = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    resumes = relationship(
+        "Resume",
+        back_populates="vacancy",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class Resume(Base):
+    """Модель резюме (отклика на вакансию)."""
     __tablename__ = "resumes"
+
     id = Column(Integer, primary_key=True, index=True)
-    vacancy_id = Column(Integer, ForeignKey("vacancies.id"), nullable=False)
-    telegram_username = Column(String, nullable=True)
-    telegram_user_id = Column(String, nullable=True)
-    original_filename = Column(String, nullable=False)
-    file_data = Column(LargeBinary, nullable=False)
+    telegram_username = Column(String, index=True)
+    telegram_user_id = Column(String, index=True)
+    original_filename = Column(String)
+    object_key = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    vacancy_id = Column(Integer, ForeignKey("vacancies.id", ondelete="CASCADE"), nullable=False)
     vacancy = relationship("Vacancy", back_populates="resumes")
-    similarities = relationship("Similarity", back_populates="resume", cascade="all, delete-orphan")
-    meetings = relationship("Meeting", back_populates="resume", cascade="all, delete-orphan")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-
-class Similarity(Base):
-    __tablename__ = "similarities"
-    id = Column(Integer, primary_key=True, index=True)
-    resume_id = Column(Integer, ForeignKey("resumes.id"), nullable=False)
-    vacancy_id = Column(Integer, ForeignKey("vacancies.id"), nullable=False)
-    score = Column(Float, nullable=False)
-    comment = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    resume = relationship("Resume", back_populates="similarities")
-    vacancy = relationship("Vacancy")
+    meetings = relationship(
+        "Meeting",
+        back_populates="resume",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="desc(Meeting.created_at)",
+    )
+    similarity = relationship(
+        "Similarity",
+        back_populates="resume",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class Meeting(Base):
+    """Модель встречи (интервью)."""
     __tablename__ = "meetings"
+
     id = Column(Integer, primary_key=True, index=True)
     token = Column(String, unique=True, index=True, nullable=False)
-    resume_id = Column(Integer, ForeignKey("resumes.id"), nullable=False)
-    organizer_username = Column(String, nullable=False)
-    candidate_username = Column(String, nullable=True)
-    is_finished = Column(Boolean, default=False, nullable=False)
-    ended_at = Column(DateTime, nullable=True)
+    organizer_username = Column(String, index=True)
+    candidate_username = Column(String, index=True)
+    is_finished = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    last_session_id = Column(String, nullable=True, index=True)
+    resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False)
     resume = relationship("Resume", back_populates="meetings")
     audio_objects = relationship(
-        "AudioObject", back_populates="meeting", cascade="all, delete-orphan"
+        "AudioObject",
+        back_populates="meeting",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
-    final_recording_data = Column(LargeBinary, nullable=True)
-    final_recording_filename = Column(String, nullable=True)
 
 
-class AudioChunk(Base):
-    __tablename__ = "audio_chunks"
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(String, index=True)
-    role = Column(String, default="participant")
-    wav_bytes = Column(LargeBinary, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+class Similarity(Base):
+    """Модель результата анализа схожести резюме и вакансии."""
+    __tablename__ = "similarities"
+
+    id = Column(Integer, primary_key=True)
+    score = Column(Float)
+    comment = Column(String)
+    resume_id = Column(Integer, ForeignKey("resumes.id", ondelete="CASCADE"), unique=True, nullable=False)
+    resume = relationship("Resume", back_populates="similarity")
 
 
 class AudioObject(Base):
+    """Модель аудио-объекта в MinIO (чанк или финальная запись)."""
     __tablename__ = "audio_objects"
-    id = Column(Integer, primary_key=True, index=True)
+
+    id = Column(Integer, primary_key=True)
     session_id = Column(String, index=True, nullable=False)
-    meeting_id = Column(Integer, ForeignKey("meetings.id"), nullable=True, index=True)
-    meeting = relationship("Meeting", back_populates="audio_objects")
-    object_key = Column(String, nullable=False)
-    role = Column(String, default="participant", nullable=False)
-    duration_sec = Column(Float, nullable=True)
-    size_bytes = Column(Integer, nullable=False)
-    is_final = Column(Boolean, default=False, nullable=False)
+    object_key = Column(String, unique=True, nullable=False)
+    role = Column(String)
+    size_bytes = Column(Integer)
+    is_final = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    meeting_id = Column(Integer, ForeignKey("meetings.id", ondelete="CASCADE"), index=True)
+    meeting = relationship("Meeting", back_populates="audio_objects")

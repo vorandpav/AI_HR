@@ -1,13 +1,12 @@
-import asyncio
 import logging
 
 import anyio
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy.exc import OperationalError
 
 from . import database, models
-from .routers import meetings, resumes, similarity, users, vacancies, ws
+from .routers import meetings, resumes, users, vacancies, ws
+from .services import analysis_service
 from .utils import s3_async
 
 logger = logging.getLogger("uvicorn.error")

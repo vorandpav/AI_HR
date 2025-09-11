@@ -1,87 +1,80 @@
-# backend/routers/meetings.py
-import datetime
-import io
 import logging
 import uuid
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from .dependencies import get_current_user, can_access_meeting
-from .. import database, models, schemas
+from backend import database, models, schemas
+from backend.dependencies import get_current_user, get_meeting_for_authorized_user
 
+logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
-logger = logging.getLogger("Meetings")
-
-
-@router.get("/", response_model=List[schemas.MeetingResponse])
-def list_meetings(
-        db: Session = Depends(database.get_db),
-        user: str = Depends(get_current_user),
-        resume_id: int = None
-):
-    query = db.query(models.Meeting)
-    if resume_id is not None:
-        query = query.filter(models.Meeting.resume_id == resume_id)
-    else:
-        query = query.filter(
-            (models.Meeting.organizer_username == user) |
-            (models.Meeting.candidate_username == user)
-        )
-    meetings = query.order_by(models.Meeting.created_at.desc()).all()
-    return meetings
 
 
 @router.post("/", response_model=schemas.MeetingResponse)
-def arrange_meeting(
-        payload: schemas.MeetingCreate,
-        db: Session = Depends(database.get_db),
+def create_meeting(
+        resume_id: int,
         user: str = Depends(get_current_user),
+        db: Session = Depends(database.get_db),
 ):
-    resume = db.query(models.Resume).filter(models.Resume.id == payload.resume_id).first()
+    """
+    Создает новую встречу (интервью) для кандидата.
+    Доступно только владельцу вакансии.
+    """
+    resume = (
+        db.query(models.Resume)
+        .options(joinedload(models.Resume.vacancy))
+        .filter(models.Resume.id == resume_id)
+        .first()
+    )
+
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
-    vacancy = db.query(models.Vacancy).filter(models.Vacancy.id == resume.vacancy_id).first()
-    if not vacancy:
-        raise HTTPException(status_code=404, detail="Vacancy not found")
-    if vacancy.telegram_username != user:
-        raise HTTPException(status_code=403, detail="Forbidden: not the owner of vacancy")
-    existing = db.query(models.Meeting) \
-        .filter(models.Meeting.resume_id == payload.resume_id, models.Meeting.is_finished == False) \
-        .first()
-    if existing:
-        raise HTTPException(status_code=400, detail="An active meeting for this resume already exists")
-    token = uuid.uuid4().hex
-    meeting = models.Meeting(
-        token=token,
-        resume_id=payload.resume_id,
-        organizer_username=user,
+
+    if resume.vacancy.telegram_username != user:
+        raise HTTPException(
+            status_code=403, detail="You do not have access to create a meeting for this resume"
+        )
+
+    new_meeting = models.Meeting(
+        token=uuid.uuid4().hex,
+        resume_id=resume.id,
+        organizer_username=resume.vacancy.telegram_username,
         candidate_username=resume.telegram_username,
-        is_finished=False,
     )
-    db.add(meeting)
+    db.add(new_meeting)
     db.commit()
-    db.refresh(meeting)
-    return meeting
+    db.refresh(new_meeting)
+
+    return new_meeting
 
 
 @router.get("/{token}", response_model=schemas.MeetingResponse)
-def get_meeting(token: str, db: Session = Depends(database.get_db), user: str = Depends(get_current_user)):
-    meeting = can_access_meeting(token, user, db)
+def get_meeting(
+        meeting: models.Meeting = Depends(get_meeting_for_authorized_user),
+):
+    """
+    Возвращает информацию о встрече по ее токену.
+    Доступно только организатору или кандидату.
+    """
     return meeting
 
 
-@router.get("/{token}/recording")
-def download_meeting_recording(token: str, db: Session = Depends(database.get_db),
-                               user: str = Depends(get_current_user)):
-    meeting = can_access_meeting(token, user, db)
-    if not getattr(meeting, "final_recording_data", None):
-        raise HTTPException(status_code=404, detail="Meeting recording not found")
-    mime_type = "audio/webm"
-    filename = getattr(meeting, "final_recording_filename", f"meeting_{token}_recording.webm")
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"}
-    return StreamingResponse(
-        io.BytesIO(meeting.final_recording_data), media_type=mime_type, headers=headers
-    )
+@router.post("/{token}/finish", response_model=schemas.MeetingResponse)
+def finish_meeting(
+        meeting: models.Meeting = Depends(get_meeting_for_authorized_user),
+        db: Session = Depends(database.get_db),
+):
+    """
+    Завершает встречу.
+    Доступно только организатору или кандидату/
+    """
+    if meeting.is_finished:
+        raise HTTPException(status_code=400, detail="Meeting is already finished")
+
+    meeting.is_finished = True
+    db.commit()
+    db.refresh(meeting)
+
+    logger.info(f"Meeting {meeting.token} is finished.")
+    return meeting

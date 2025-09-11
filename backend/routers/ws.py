@@ -1,195 +1,111 @@
 import asyncio
 import logging
-import uuid
+from collections import defaultdict
 
-import aiohttp
-import anyio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, Depends, WebSocketDisconnect
+from sqlalchemy.orm import Session
 
-from .dependencies import get_current_user
-from ..services.meeting_service import finish_meeting_sync, get_meeting_by_token
-from backend.services.audio_store import save_audio_chunk_sync
-from backend.services.stt_tts_client import STTClient, get_stt_client
+from .. import database, models
+from ..dependencies import get_meeting_for_authorized_user, get_current_user
+from ..services import file_service
 
 logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 
-async def client_to_stt(
-        client_ws: WebSocket, stt_ws: aiohttp.ClientWebSocketResponse, session_id: str
-):
-    """Принимает аудио от клиента, сохраняет и пересылает в STT/TTS сервис."""
-    try:
-        while True:
-            data = await client_ws.receive_bytes()
-            if data:
-                # Сохраняем аудио клиента
+class ConnectionManager:
+    """
+    Управляет активными WebSocket-соединениями для каждой встречи.
+    Ключ словаря - токен встречи, значение - множество активных сокетов.
+    """
+
+    def __init__(self):
+        self.active_connections: dict[str, set[WebSocket]] = defaultdict(set)
+
+    async def connect(self, websocket: WebSocket, meeting_token: str):
+        """Регистрирует новое соединение."""
+        await websocket.accept()
+        self.active_connections[meeting_token].add(websocket)
+        logger.info(
+            f"Новое WebSocket-соединение для встречи {meeting_token}. Всего участников: {len(self.active_connections[meeting_token])}")
+
+    def disconnect(self, websocket: WebSocket, meeting_token: str):
+        """Удаляет соединение."""
+        self.active_connections[meeting_token].remove(websocket)
+        logger.info(f"WebSocket-соединение для встречи {meeting_token} закрыто.")
+        # Если в комнате никого не осталось, удаляем ее из словаря
+        if not self.active_connections[meeting_token]:
+            del self.active_connections[meeting_token]
+
+    async def broadcast_to_others(self, message: bytes, meeting_token: str, sender: WebSocket):
+        """Отправляет сообщение всем участникам встречи, кроме отправителя."""
+        # Копируем множество, чтобы избежать проблем при изменении во время итерации
+        for connection in list(self.active_connections.get(meeting_token, set())):
+            if connection is not sender:
                 try:
-                    await anyio.to_thread.run_sync(
-                        save_audio_chunk_sync,
-                        data,
-                        session_id,
-                        "participant",
-                        "audio/webm",
-                    )
-                    logger.debug(f"Saved client audio chunk for session {session_id}")
-                except Exception as e:
-                    logger.exception(
-                        "Failed saving client audio chunk for session %s", session_id
-                    )
-
-                # Пересылаем байты в STT/TTS сервис
-                if not stt_ws.closed:
-                    await stt_ws.send_bytes(data)
-    except WebSocketDisconnect:
-        logger.info("Client disconnected (client_to_stt)")
-    except Exception as e:
-        logger.exception("Error in client_to_stt: %s", e)
-    finally:
-        try:
-            if not stt_ws.closed:
-                await stt_ws.send_str("end_session")
-        except Exception as e:
-            logger.warning(f"Could not send end_session to STT/TTS: {e}")
+                    await connection.send_bytes(message)
+                except (WebSocketDisconnect, RuntimeError):
+                    # Если сокет уже закрыт, просто игнорируем
+                    pass
 
 
-async def stt_to_client(
-        stt_ws: aiohttp.ClientWebSocketResponse, client_ws: WebSocket, session_id: str
-):
-    """Принимает аудио/текст от STT/TTS сервиса, сохраняет и пересылает клиенту."""
-    try:
-        while True:
-            msg = await stt_ws.receive()
-            if msg.type == aiohttp.WSMsgType.BINARY:
-                # Сохраняем аудио STT/TTS
-                try:
-                    await anyio.to_thread.run_sync(
-                        save_audio_chunk_sync,
-                        msg.data,
-                        session_id,
-                        "stt_tts",
-                        "audio/webm",
-                    )
-                    logger.debug(f"Saved STT/TTS audio chunk for session {session_id}")
-                except Exception as e:
-                    logger.exception(
-                        "Failed saving STT audio chunk for session %s", session_id
-                    )
-                await client_ws.send_bytes(msg.data)
-            elif msg.type == aiohttp.WSMsgType.TEXT:
-                await client_ws.send_text(msg.data)
-            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                break
-    except Exception as e:
-        logger.exception("Error in stt_to_client: %s", e)
-    finally:
-        try:
-            if client_ws.client_state.name == "CONNECTED":
-                await client_ws.close()
-        except Exception as e:
-            logger.warning(f"Could not close client websocket: {e}")
+# Создаем единственный экземпляр менеджера, который будет жить, пока живо приложение
+manager = ConnectionManager()
 
 
 @router.websocket("/ws/{token}")
-async def meeting_websocket(
+async def websocket_endpoint(
         websocket: WebSocket,
         token: str,
+        # Эти зависимости проверяют, что пользователь имеет право на доступ к встрече
         user: str = Depends(get_current_user),
+        meeting: models.Meeting = Depends(get_meeting_for_authorized_user),
+        db: Session = Depends(database.get_db),
 ):
-    await websocket.accept()
-    session_id = uuid.uuid4().hex
+    """
+    Основной эндпоинт для WebSocket-коммуникации во время звонка.
+    """
+    # Шаг 1: Подключаем и регистрируем пользователя в менеджере
+    await manager.connect(websocket, meeting.token)
 
-    # Проверка токена и состояния встречи
-    meeting = await anyio.to_thread.run_sync(get_meeting_by_token, token)
-    if not meeting:
-        logger.warning(f"Invalid token attempted: {token}")
-        await websocket.close(code=4001, reason="Invalid token")
-        return
-
-    if meeting.is_finished:
-        logger.warning(f"Attempt to use finished meeting token: {token}")
-        await websocket.close(code=4002, reason="Meeting already finished")
-        return
-
-    logger.info(
-        "New call session %s for meeting %d (token=%s)", session_id, meeting.id, token
-    )
-
-    stt_ws = None
-    temp_stt_client = None
-    tasks = []
+    # Определяем "роль" пользователя в этом звонке для сохранения аудио
+    role = "organizer" if user == meeting.organizer_username else "candidate"
 
     try:
-        stt_client = get_stt_client()
-        stt_url_with_token = f"{stt_client.url}/{token}"
-        temp_stt_client = STTClient(stt_url_with_token)
-        stt_ws = await temp_stt_client.connect()
-        logger.info(
-            "Successfully connected to STT/TTS service for session %s", session_id
-        )
+        # Шаг 2: Бесконечный цикл приема, пересылки и сохранения аудио
+        while True:
+            # Принимаем аудио-чанк от клиента
+            data = await websocket.receive_bytes()
 
-        task_client_to_stt = asyncio.create_task(
-            client_to_stt(websocket, stt_ws, session_id)
-        )
-        task_stt_to_client = asyncio.create_task(
-            stt_to_client(stt_ws, websocket, session_id)
-        )
+            # Пересылаем его другому участнику
+            await manager.broadcast_to_others(data, meeting.token, websocket)
 
-        tasks = [task_client_to_stt, task_stt_to_client]
-
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        logger.info(
-            f"Call session {session_id} tasks completed. Done: {len(done)}, Pending: {len(pending)}"
-        )
-        for task in pending:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-    except Exception as e:
-        logger.exception(
-            "Failed to establish or maintain connection for session %s: %s",
-            session_id,
-            e,
-        )
-        if websocket.client_state.name == "CONNECTED":
-            await websocket.close(code=1011, reason="Internal server error")
-    finally:
-        logger.info("Cleaning up resources for session %s", session_id)
-        if stt_ws and not stt_ws.closed:
-            try:
-                await stt_ws.close()
-            except Exception as e:
-                logger.warning(f"Error closing STT/TTS connection: {e}")
-        if temp_stt_client:
-            try:
-                await temp_stt_client.close()
-            except Exception as e:
-                logger.warning(f"Error closing STT/TTS client session: {e}")
-        if websocket.client_state.name == "CONNECTED":
-            try:
-                await websocket.close()
-            except Exception as e:
-                logger.warning(f"Error closing client WebSocket connection: {e}")
-        try:
-            await anyio.to_thread.run_sync(finish_meeting_sync, token, session_id)
-            logger.info("Meeting for token %s marked as finished in DB.", token)
-        except Exception as e:
-            logger.exception(
-                "Failed to finish meeting for token %s in DB: %s", token, e
-            )
-        # Запуск пост-обработки (объединение аудио)
-        try:
-            from backend.services import post_processing
+            # В фоне (не блокируя основной поток) сохраняем чанк в MinIO и БД
             asyncio.create_task(
-                post_processing.process_and_merge_audio(meeting.id, session_id)
+                save_chunk_in_background(db, data, meeting.id, role)
             )
-            logger.info(
-                f"Post-processing task scheduled for meeting {meeting.id}, session {session_id}"
-            )
-        except Exception as e:
-            logger.exception(
-                f"Failed to schedule post-processing for meeting {meeting.id}: {e}"
-            )
+
+    except WebSocketDisconnect:
+        logger.info(f"Клиент {user} отключился от встречи {meeting.token}.")
+    except Exception as e:
+        logger.error(f"Произошла ошибка в WebSocket для встречи {meeting.token}: {e}", exc_info=True)
+    finally:
+        # Шаг 3: Гарантированно отключаем пользователя от менеджера при выходе
+        manager.disconnect(websocket, meeting.token)
+
+
+async def save_chunk_in_background(db: Session, data: bytes, meeting_id: int, role: str):
+    """
+    Асинхронная обертка для сохранения аудио-чанка.
+    Нужна, чтобы безопасно работать с сессией БД в фоновой задаче.
+    """
+    try:
+        # Используем синхронную функцию, но вызываем ее в асинхронном контексте
+        file_service.save_audio_chunk(
+            db=db,
+            data=data,
+            session_id=str(meeting_id),  # Используем ID встречи как ID сессии
+            role=role,
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении аудио-чанка в фоне: {e}")

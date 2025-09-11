@@ -1,78 +1,95 @@
-# backend/routers/vacancies.py
-import io
-import mimetypes
-from urllib.parse import quote, unquote
+import logging
+from typing import List
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from .dependencies import get_current_user, can_access_vacancy
-from .. import database, models, schemas
+from backend import database, models, schemas
+from backend.dependencies import get_current_user, get_vacancy_for_owner
+from backend.services import file_service
 
+logger = logging.getLogger("uvicorn.error")
 router = APIRouter()
 
 
-@router.get("/", response_model=list[schemas.VacancyResponse])
-def list_vacancies(
+@router.post("/", response_model=schemas.VacancyResponse)
+def create_vacancy(
+        title: str = Form(...),
+        file: UploadFile = File(...),
+        user: str = Depends(get_current_user),
         db: Session = Depends(database.get_db),
-        user: str = Depends(get_current_user)
 ):
+    """
+    Создает новую вакансию.
+    """
+    new_vacancy = models.Vacancy(
+        title=title,
+        telegram_username=user,
+        original_filename=file.filename
+    )
+    db.add(new_vacancy)
+    db.flush()
+
+    try:
+        file_service.save_document(
+            db=db, file=file, file_type="vacancy", record=new_vacancy
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save vacancy document: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save vacancy document")
+
+    db.refresh(new_vacancy)
+    return new_vacancy
+
+
+@router.get("/", response_model=List[schemas.VacancyResponse])
+def list_my_vacancies(
+        user: str = Depends(get_current_user),
+        db: Session = Depends(database.get_db),
+        skip: int = 0,
+        limit: int = 100,
+):
+    """
+    Возвращает список вакансий, созданных текущим пользователем.
+    """
     vacancies = (
         db.query(models.Vacancy)
         .filter(models.Vacancy.telegram_username == user)
-        .order_by(models.Vacancy.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
     return vacancies
 
 
-@router.post("/", response_model=schemas.VacancyResponse)
-async def create_vacancy(
-        title: str,
-        file: UploadFile,
-        telegram_username: str,
-        telegram_user_id: str,
-        db: Session = Depends(database.get_db),
-):
-    file_bytes = await file.read() if file else None
-    filename = unquote(file.filename) if file else None
-    MAX_SIZE = 100 * 1024 * 1024
-    if file_bytes and len(file_bytes) > MAX_SIZE:
-        raise HTTPException(status_code=413, detail="Файл слишком большой (макс 100 MB)")
-    vacancy = models.Vacancy(
-        title=title,
-        file_name=filename,
-        file_data=file_bytes,
-        telegram_username=telegram_username,
-        telegram_user_id=telegram_user_id,
-    )
-    db.add(vacancy)
-    db.commit()
-    db.refresh(vacancy)
-    return vacancy
-
-
 @router.get("/{vacancy_id}", response_model=schemas.VacancyResponse)
 def get_vacancy(
-        vacancy_id: int,
-        db: Session = Depends(database.get_db),
-        user: str = Depends(get_current_user)
+        vacancy: models.Vacancy = Depends(get_vacancy_for_owner)
 ):
-    vacancy = can_access_vacancy(vacancy_id, user, db)
+    """
+    Возвращает вакансию по ID. Доступно только владельцу.
+    """
     return vacancy
 
 
-@router.get("/{vacancy_id}/download")
-def download_vacancy(
-        vacancy_id: int,
-        db: Session = Depends(database.get_db),
-        user: str = Depends(get_current_user)
+@router.get("/{vacancy_id}/download", response_class=StreamingResponse)
+def download_vacancy_document(
+        vacancy: models.Vacancy = Depends(get_vacancy_for_owner)  # Точно так же используем зависимость
 ):
-    vacancy = can_access_vacancy(vacancy_id, user, db)
-    if not vacancy.file_data:
-        raise HTTPException(status_code=404, detail="Файл вакансии не найден")
-    mime_type = mimetypes.guess_type(vacancy.file_name)[0] or "application/octet-stream"
-    quoted = quote(vacancy.file_name or f"vacancy_{vacancy_id}")
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"}
-    return StreamingResponse(io.BytesIO(vacancy.file_data), media_type=mime_type, headers=headers)
+    """
+    Скачивает документ, прикрепленный к вакансии. Доступно только владельцу.
+    """
+    if not vacancy.object_key:
+        raise HTTPException(status_code=404, detail="Vacancy document not found")
+
+    try:
+        file_bytes, content_type = file_service.get_file(vacancy.object_key)
+        headers = {
+            "Content-Disposition": f"attachment; filename*=UTF-8''{vacancy.original_filename}"
+        }
+        return StreamingResponse(iter([file_bytes]), media_type=content_type, headers=headers)
+    except Exception as e:
+        logger.error(f"Failed to download vacancy document {vacancy.object_key}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download vacancy document")
