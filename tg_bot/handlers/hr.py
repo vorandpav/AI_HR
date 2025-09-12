@@ -1,18 +1,12 @@
 # tg_bot/handlers/hr.py
-import tempfile
-
-import aiohttp
 from aiogram import F, Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import FSInputFile
-
 from tg_bot.backend_client import BackendClient
 from tg_bot.config import BACKEND_URL
 
 router = Router()
-bc = BackendClient(BACKEND_URL)
 
 
 class GetApplicants(StatesGroup):
@@ -23,10 +17,6 @@ class ArrangeMeeting(StatesGroup):
     waiting_resume_id = State()
 
 
-class GetRecording(StatesGroup):
-    waiting_resume_id = State()
-
-
 @router.message(Command("get_applicants"))
 async def cmd_get_applicants_start(message, state: FSMContext):
     await message.answer("Укажите ID вакансии:")
@@ -34,59 +24,42 @@ async def cmd_get_applicants_start(message, state: FSMContext):
 
 
 @router.message(GetApplicants.waiting_vacancy_id, F.text)
-async def process_vacancy_id(message, state: FSMContext):
+async def process_vacancy_id(
+        message: types.Message,
+        state: FSMContext,
+        backend_client: BackendClient  # <-- Получаем клиент
+):
     if not message.text.strip().isdigit():
         await message.answer("ID должно быть числом.")
         return
 
     vacancy_id = int(message.text.strip())
+    username = message.from_user.username or f"id{message.from_user.id}"
     await state.clear()
 
     try:
-        vacancy = await bc.get_vacancy(vacancy_id)
-    except Exception as e:
-        await message.answer(f"Ошибка при получении вакансии: {e}")
-        return
-    await message.answer(
-        f"Вакансия: {vacancy.get('title')}\n" f"ID: {vacancy.get('id')}"
-    )
-
-    username = message.from_user.username or f"id{message.from_user.id}"
-    try:
-        resumes = await bc.get_resumes_for_vacancy(vacancy_id, x_telegram_user=username)
+        resumes = await backend_client.get_resumes_for_vacancy(vacancy_id, username)
         if not resumes:
-            await message.answer("Откликов нет.")
+            await message.answer("Откликов на эту вакансию пока нет.")
             return
 
+        await message.answer(f"Найдено откликов: {len(resumes)}")
+
         for r in resumes:
-            rid = r["id"]
-            candidate = r.get("telegram_username")
-            try:
-                sim = await bc.get_similarity(rid, x_telegram_user=username)
-                sim_text = (
-                    f"Результат: {sim.get('score')}\n{sim.get('result_text', '')}"
-                )
-            except Exception:
-                sim_text = "Результат ещё не готов."
+            resume_full = await backend_client.get_resume(r['id'], username)
+
+            sim_text = "Анализ еще не завершен."
+            if resume_full and resume_full.get("similarity"):
+                sim = resume_full["similarity"]
+                sim_text = f"<b>Соответствие: {sim['score']:.1%}</b>\n<i>{sim['comment']}</i>"
+
             await message.answer(
-                f"ID резюме: {rid}\n"
-                f"Кандидат: @{candidate}\n"
-                f"{candidate}\n{sim_text}"
+                f"<b>Кандидат: @{r['telegram_username']}</b> (Резюме ID: {r['id']})\n\n{sim_text}",
+                parse_mode="HTML"
             )
 
-            try:
-                data, ctype, cd = await bc.download_resume_bytes(
-                    rid, x_telegram_user=username
-                )
-                filename = r.get("original_filename") or f"resume_{rid}"
-                with tempfile.NamedTemporaryFile(delete=False, suffix="") as tmp:
-                    tmp.write(data)
-                    tmp_path = tmp.name
-                await message.answer_document(FSInputFile(tmp_path, filename=filename))
-            except Exception as e:
-                await message.answer(f"Не удалось скачать резюме {rid}: {e}")
     except Exception as e:
-        await message.answer(f"Ошибка: {e}")
+        await message.answer(f"Произошла ошибка: {e}")
 
 
 @router.message(Command("arrange_meeting"))
@@ -96,81 +69,50 @@ async def cmd_arrange_meeting_start(message, state: FSMContext):
 
 
 @router.message(ArrangeMeeting.waiting_resume_id, F.text)
-async def arrange_scheduled(message, state: FSMContext):
-    txt = message.text.strip()
-    if not txt.isdigit():
+async def arrange_scheduled(
+        message: types.Message,
+        state: FSMContext,
+        backend_client: BackendClient  # <-- Получаем клиент
+):
+    if not message.text.strip().isdigit():
         await message.answer("ID должен быть числом.")
         return
-    resume_id = int(txt)
+
+    resume_id = int(message.text.strip())
     username = message.from_user.username or f"id{message.from_user.id}"
+    await state.clear()
 
     try:
-        rinfo = await bc.get_resume(resume_id, x_telegram_user=username)
-    except Exception as e:
-        await message.answer(f"Ошибка при получении информации резюме: {e}")
-        return
+        meeting = await backend_client.create_meeting(resume_id, username)
 
-    try:
-        vac = await bc.get_vacancy(rinfo.get("vacancy_id"))
-    except Exception as e:
-        await message.answer(f"Ошибка при получении вакансии резюме: {e}")
-        return
+        resume = await backend_client.get_resume(resume_id, username)
 
-    await message.answer(
-        f"Вакансия: {vac.get('title')}\n"
-        f"ID вакансии: {vac.get('id')}\n"
-        f"Автор резюме: @{rinfo.get('telegram_username')}\n"
-        f"ID резюме: {resume_id}\n"
-    )
-    try:
-        meeting = await bc.arrange_meeting(resume_id, organizer_username=username)
         base = BACKEND_URL.rstrip("/")
         link = f"{base}/static/meeting.html?token={meeting['token']}"
-        await message.answer(
-            f"Встреча создана.\n" f"<code>{link}</code>\n", parse_mode="HTML"
-        )
-        rinfo = await bc.get_resume(resume_id, x_telegram_user=username)
-        candidate_username = rinfo.get("telegram_username")
-        candidate_user_id = rinfo.get("telegram_user_id")
-        sent = False
 
-        if candidate_user_id:
-            try:
-                target = int(candidate_user_id)
-                await message.bot.send_message(
-                    target,
-                    f"Вам назначили интервью:\n"
-                    f"<code>{link}</code>\n"
-                    f"Вакансия: {vac.get('title')} (ID: {vac.get('id')})",
-                    parse_mode="HTML",
+        await message.answer(
+            f"Встреча для кандидата @{resume['telegram_username']} создана.\n"
+            f"Ссылка для звонка:\n<code>{link}</code>",
+            parse_mode="HTML"
+        )
+
+        try:
+            await message.bot.send_message(
+                chat_id=resume['telegram_user_id'],
+                text=(
+                    f"Здравствуйте! Вам назначено собеседование по вашей кандидатуре.\n"
+                    f"ID резюме: {resume_id}\n"
+                    f"Пожалуйста, присоединяйтесь к встрече по ссылке:\n{link}"
                 )
-                sent = True
-            except Exception as e:
-                await message.answer(
-                    f"Не удалось отправить сообщение по ID кандидата: {e}"
-                )
-        if not sent and candidate_username:
-            try:
-                target = f"@{candidate_username}"
-                await message.bot.send_message(
-                    target,
-                    f"Вам назначили интервью:"
-                    f"<code>{link}</code>\n"
-                    f"Вакансия: {vac.get('title')} (ID: {vac.get('id')})",
-                    parse_mode="HTML",
-                )
-                sent = True
-            except Exception as e:
-                await message.answer(
-                    f"Не удалось отправить сообщение по юзернейму кандидата: {e}"
-                )
-        if not sent:
-            await message.answer(
-                "Не удалось отправить сообщение кандидату: нет его телеграм-юзернейма или ID."
             )
+            await message.answer(f"Кандидат @{resume['telegram_username']} уведомлен о встрече.")
+        except Exception as e:
+            await message.answer(f"Не удалось уведомить кандидата: {e}")
+
+
+
     except Exception as e:
         await message.answer(f"Ошибка при создании встречи: {e}")
-    await state.clear()
 
 
 @router.message(Command("get_recording"))

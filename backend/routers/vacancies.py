@@ -18,6 +18,7 @@ def create_vacancy(
         title: str = Form(...),
         file: UploadFile = File(...),
         user: str = Depends(get_current_user),
+        user_id: str = Form(...),
         db: Session = Depends(database.get_db),
 ):
     """
@@ -26,6 +27,7 @@ def create_vacancy(
     new_vacancy = models.Vacancy(
         title=title,
         telegram_username=user,
+        telegram_user_id=user_id,
         original_filename=file.filename
     )
     db.add(new_vacancy)
@@ -35,6 +37,7 @@ def create_vacancy(
         file_service.save_document(
             db=db, file=file, file_type="vacancy", record=new_vacancy
         )
+        db.commit()
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to save vacancy document: {e}")

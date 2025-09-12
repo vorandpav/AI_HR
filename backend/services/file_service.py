@@ -26,7 +26,7 @@ def save_document(
         record: models.Vacancy | models.Resume,
 ) -> None:
     """
-    Сохраняет документ (вакансию или резюме) в MinIO и обновляет запись в базе данных.
+    Сохраняет документ (вакансию или резюме) в MinIO и обновляет запись.
     """
     folder = BUCKET_FOLDERS.get(file_type)
     if not folder:
@@ -42,7 +42,7 @@ def save_document(
     logger.info(f"Document '{file.filename}' saved to MinIO as '{object_key}'")
 
     record.object_key = object_key
-    db.commit()
+    db.flush([record])
 
 
 def save_audio_chunk(

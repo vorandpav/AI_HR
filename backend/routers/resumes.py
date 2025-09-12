@@ -23,6 +23,7 @@ def create_resume(
         vacancy_id: int = Form(...),
         file: UploadFile = File(...),
         user: str = Depends(get_current_user),
+        user_id: str = Form(...),
         db: Session = Depends(database.get_db),
 ):
     """
@@ -36,6 +37,7 @@ def create_resume(
     new_resume = models.Resume(
         vacancy_id=vacancy_id,
         telegram_username=user,
+        telegram_user_id=user_id,
         original_filename=file.filename,
     )
     db.add(new_resume)
@@ -45,15 +47,14 @@ def create_resume(
         file_service.save_document(
             db=db, file=file, file_type="resume", record=new_resume
         )
+        db.commit()
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to save resume document: {e}")
         raise HTTPException(status_code=500, detail="Failed to save resume document")
 
     db.refresh(new_resume)
-
     background_tasks.add_task(analysis_service.trigger_similarity_analysis, new_resume.id)
-
     return new_resume
 
 
