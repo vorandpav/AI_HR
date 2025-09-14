@@ -17,6 +17,10 @@ class ArrangeMeeting(StatesGroup):
     waiting_resume_id = State()
 
 
+class GetRecording(StatesGroup):
+    waiting_resume_id = State()
+
+
 @router.message(Command("get_applicants"))
 async def cmd_get_applicants_start(message, state: FSMContext):
     await message.answer("Укажите ID вакансии:")

@@ -12,7 +12,7 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minio")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minio123")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() in ("true", "yes")
-DEFAULT_BUCKET = os.getenv("MINIO_BUCKET", "hr-bucket")
+BUCKET_NAME = os.getenv("MINIO_BUCKET", "hr-bucket")
 
 
 class MinioClient:
@@ -25,7 +25,7 @@ class MinioClient:
             secret_key=MINIO_SECRET_KEY,
             secure=MINIO_SECURE,
         )
-        self.bucket_name = DEFAULT_BUCKET
+        self.bucket_name = BUCKET_NAME
         self._ensure_bucket()
 
     def _ensure_bucket(self):

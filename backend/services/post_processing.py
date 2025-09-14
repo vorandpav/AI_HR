@@ -8,7 +8,7 @@ import ffmpeg
 from sqlalchemy.orm import Session
 
 from .. import database, models
-from .minio_client import DEFAULT_BUCKET, get_minio_client
+from .minio_client import BUCKET_NAME, get_minio_client
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -65,7 +65,7 @@ async def _download_audio_object_bytes(object_key: str) -> bytes:
     def _sync_get():
         minio_client = get_minio_client()
         response = minio_client.client.get_object(
-            bucket_name=DEFAULT_BUCKET, object_name=object_key  # ИСПРАВЛЕНО
+            bucket_name=BUCKET_NAME, object_name=object_key  # ИСПРАВЛЕНО
         )
         return response.read()
 

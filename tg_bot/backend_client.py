@@ -1,3 +1,4 @@
+# tg_bot/backend_client.py
 import httpx
 from typing import List, Optional, Dict, Tuple
 import os
@@ -17,14 +18,14 @@ class BackendClient:
 
     def _get_auth_header(self, telegram_username: str) -> Dict[str, str]:
         """Генерирует заголовок аутентификации для пользователя."""
-        return {"Authorization": f"Bearer fake-token-for-{telegram_username}"}
+        return {"X-Telegram-User": telegram_username}
 
     # --- Вакансии ---
     async def post_vacancy(self, title: str, username: str, user_id: str, file_bytes: bytes, filename: str) -> Dict:
         """Публикует новую вакансию."""
         headers = self._get_auth_header(username)
         files = {"file": (filename, file_bytes)}
-        data = {"title": title}
+        data = {"title": title, "user_id": user_id}
 
         response = await self._client.post("/vacancies/", headers=headers, data=data, files=files)
         response.raise_for_status()
@@ -42,7 +43,7 @@ class BackendClient:
         """Отправляет отклик на вакансию."""
         headers = self._get_auth_header(username)
         files = {"file": (filename, file_bytes)}
-        data = {"vacancy_id": str(vacancy_id)}
+        data = {"vacancy_id": str(vacancy_id), "user_id": user_id}
 
         response = await self._client.post("/resumes/", headers=headers, data=data, files=files)
         response.raise_for_status()
@@ -58,7 +59,7 @@ class BackendClient:
         return response.json()
 
     async def get_resume(self, resume_id: int, username: str) -> Optional[Dict]:
-        """Получает полную информацию о резюме (включая similarity)."""
+        """Получает полную информацию о резюме"""
         headers = self._get_auth_header(username)
         response = await self._client.get(f"/resumes/{resume_id}", headers=headers)
         response.raise_for_status()
