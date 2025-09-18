@@ -50,10 +50,12 @@ async def vacancy_description_file(
             filename=doc.file_name,
         )
         await message.answer(
-            f"Вакансия сохранена!\nID вакансии: <code>{res['id']}</code>",
+            f"Вакансия сохранена!\n"
+            f"<b>{res['title']}</b>\n"
+            f"ID вакансии: <code>{res['id']}</code>",
             parse_mode="HTML",
         )
     except Exception as e:
         await message.answer(f"Ошибка при отправке вакансии: {e}")
-    finally:
-        await state.clear()
+
+    await state.clear()

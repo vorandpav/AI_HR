@@ -1,7 +1,6 @@
 # tg_bot/backend_client.py
 import httpx
-from typing import List, Optional, Dict, Tuple
-import os
+from typing import List, Optional, Dict
 
 
 class BackendClient:
@@ -14,7 +13,7 @@ class BackendClient:
 
     async def close(self):
         """Закрывает сессию клиента."""
-        await self._client.close()
+        await self._client.aclose()
 
     def _get_auth_header(self, telegram_username: str) -> Dict[str, str]:
         """Генерирует заголовок аутентификации для пользователя."""
@@ -28,6 +27,13 @@ class BackendClient:
         data = {"title": title, "user_id": user_id}
 
         response = await self._client.post("/vacancies/", headers=headers, data=data, files=files)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_vacancy(self, vacancy_id: int, username: str) -> Optional[Dict]:
+        """Получает полную информацию о вакансии по ID."""
+        headers = self._get_auth_header(username)
+        response = await self._client.get(f"/vacancies/{vacancy_id}", headers=headers)
         response.raise_for_status()
         return response.json()
 
@@ -61,11 +67,20 @@ class BackendClient:
     async def get_resume(self, resume_id: int, username: str) -> Optional[Dict]:
         """Получает полную информацию о резюме"""
         headers = self._get_auth_header(username)
-        response = await self._client.get(f"/resumes/{resume_id}", headers=headers)
+        response = await self._client.get(f"/resumes/full/{resume_id}", headers=headers)
         response.raise_for_status()
         return response.json()
 
-    # --- Встречи и Записи ---
+    async def trigger_similarity(self, resume_id: int, username: str) -> None:
+        """
+        Отправляет запрос на повторный анализ соответствия резюме вакансии.
+        """
+
+    headers = self._get_auth_header(username)
+    response = await self._client.post(f"/similarity/{resume_id}/trigger", headers=headers)
+    response.raise_for_status()
+    return None
+
     async def create_meeting(self, resume_id: int, username: str) -> Dict:
         """Создает встречу для резюме."""
         headers = self._get_auth_header(username)

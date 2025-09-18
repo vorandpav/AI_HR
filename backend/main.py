@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .database import engine, Base
-from .routers import vacancies, resumes, meetings, ws
+from .routers import vacancies, resumes, meetings, similarity, ws
 from .services.minio_client import get_minio_client, BUCKET_NAME
 
 Base.metadata.create_all(bind=engine)
@@ -47,6 +47,7 @@ async def startup_event():
 app.include_router(vacancies.router, prefix="/vacancies", tags=["Vacancies"])
 app.include_router(resumes.router, prefix="/resumes", tags=["Resumes"])
 app.include_router(meetings.router, prefix="/meetings", tags=["Meetings"])
+app.include_router(similarity.router, prefix="/similarity", tags=["Similarity Analysis"])
 app.include_router(ws.router, tags=["WebSocket Calls"])
 
 app.mount("/static", StaticFiles(directory="backend/static"), name="static")

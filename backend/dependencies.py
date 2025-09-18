@@ -61,6 +61,34 @@ def get_resume_for_authorized_user(
     return resume
 
 
+def get_similarity_for_authorized_user(
+        resume_id: int,
+        db: Session = Depends(database.get_db),
+        user: str = Depends(get_current_user),
+) -> models.Similarity:
+    """
+    Проверяет, что пользователь имеет право на доступ к резюме.
+    Права есть у:
+    1. Владельца вакансии.
+    2. Кандидата.
+    Возвращает объект резюме.
+    """
+    resume = (
+        db.query(models.Resume)
+        .options(joinedload(models.Resume.vacancy), joinedload(models.Resume.similarity))
+        .filter(models.Resume.id == resume_id)
+        .first()
+    )
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found")
+    if user not in [resume.telegram_username, resume.vacancy.telegram_username]:
+        raise HTTPException(status_code=403, detail="You do not have access to this resume")
+    if not resume.similarity:
+        raise HTTPException(status_code=404, detail="Similarity analysis not found")
+
+    return resume.similarity
+
+
 def get_meeting_for_authorized_user(
         token: str,
         db: Session = Depends(database.get_db),

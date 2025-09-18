@@ -50,17 +50,18 @@ async def process_vacancy_id(
         await message.answer(f"Найдено откликов: {len(resumes)}")
 
         for r in resumes:
-            resume_full = await backend_client.get_resume(r['id'], username)
-
-            sim_text = "Анализ еще не завершен."
-            if resume_full and resume_full.get("similarity"):
-                sim = resume_full["similarity"]
-                sim_text = f"<b>Соответствие: {sim['score']:.1%}</b>\n<i>{sim['comment']}</i>"
-
-            await message.answer(
-                f"<b>Кандидат: @{r['telegram_username']}</b> (Резюме ID: {r['id']})\n\n{sim_text}",
-                parse_mode="HTML"
-            )
+            try:
+                resume = await backend_client.get_resume(r['id'], username)
+                similarity = await backend_client.get_similarity(r['id'], username)
+                await message.answer(
+                    f"ID резюме: <code>{resume['id']}</code>\n"
+                    f"Кандидат: @{resume['telegram_username']}\n"
+                    f"Ссылка на резюме: {resume['file_url']}\n"
+                    f"Оценка соответствия вакансии: {similarity:.2f}%",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                await message.answer(f"Ошибка при получении данных резюме ID {r['id']}: {e}")
 
     except Exception as e:
         await message.answer(f"Произошла ошибка: {e}")
@@ -181,5 +182,5 @@ async def process_recording_resume_id(message: types.Message, state: FSMContext)
         await message.answer(
             f"Произошла непредвиденная ошибка при получении записи: {e}"
         )
-    finally:
-        await state.clear()
+
+    await state.clear()

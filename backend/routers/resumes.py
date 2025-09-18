@@ -80,15 +80,15 @@ def list_resumes_for_vacancy(
     return resumes
 
 
-@router.get("/{resume_id}", response_model=schemas.ResumeResponse)
-def get_resume(
-        # Эта зависимость проверяет права и для кандидата, и для HR
+@router.get("/full/{resume_id}", response_model=schemas.ResumeResponse)
+def get_full_resume_info(
         resume: models.Resume = Depends(get_resume_for_authorized_user),
 ):
     """
-    Возвращает резюме по ID.
+    Возвращает резюме и вакансию по ID резюме.
     Доступно владельцу резюме или владельцу связанной вакансии.
     """
+    print(resume.__dict__)
     return resume
 
 

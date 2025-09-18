@@ -5,31 +5,27 @@ from datetime import datetime
 
 # 1. Similarity (Результат анализа)
 
-
 class SimilarityResponse(BaseModel):
     """Схема для отображения результата анализа схожести."""
     model_config = ConfigDict(from_attributes=True)
 
-    score: float = Field(..., description="Оценка схожести от 0.0 до 1.0")
-    comment: str = Field(..., description="Текстовый комментарий от ML-модели")
+    score: float = None
+    comment: str = None
     created_at: datetime
 
 
 # 2. AudioObject (Аудио-чанrи встреч)
 
-
 class AudioObjectResponse(BaseModel):
     """Схема для отображения информации об аудио-файле."""
     model_config = ConfigDict(from_attributes=True)
 
-    object_key: str
     role: str
     is_final: bool
     created_at: datetime
 
 
 # 3. Meeting (Встречи/Интервью)
-
 
 class MeetingResponse(BaseModel):
     """Полная информация о встрече, включая аудио."""
@@ -43,43 +39,49 @@ class MeetingResponse(BaseModel):
     audio_objects: List[AudioObjectResponse] = []
 
 
-# 4. Resume (Резюме/Отклики)
-
+# 4. Short Responses
 
 class ResumeShortResponse(BaseModel):
-    """Краткая информация о резюме (для списков)."""
+    """Краткая информация о резюме."""
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     telegram_username: str
+    telegram_user_id: str
     original_filename: str
     created_at: datetime
 
 
-class ResumeResponse(ResumeShortResponse):
-    """Полная информация о резюме, включая встречи и результат анализа."""
-    model_config = ConfigDict(from_attributes=True)
-
-    vacancy_id: int
-    object_key: Optional[str] = None
-    meetings: List[MeetingResponse] = []
-    similarity: Optional[SimilarityResponse] = None
-
-
-# 5. Vacancy (Вакансии)
-
-
-class VacancyResponse(BaseModel):
-    """Полная информация о вакансии, включая список откликов."""
+class VacancyShortResponse(BaseModel):
+    """Краткая информация о вакансии."""
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     title: str
     telegram_username: str
-    original_filename: Optional[str] = None
-    object_key: Optional[str] = None
+    telegram_user_id: str
+    original_filename: str
     created_at: datetime
-    resumes: List[ResumeShortResponse] = []
+
+
+# 5. Resume (Резюме/Отклики)
+
+class ResumeResponse(ResumeShortResponse):
+    """Полная информация о резюме, включая встречи и результат анализа."""
+    model_config = ConfigDict(from_attributes=True)
+
+    vacancy: VacancyShortResponse
+    meetings: Optional[List[MeetingResponse]] = []
+    similarity: Optional[SimilarityResponse] = None
+
+
+# 6. Vacancy (Вакансии)
+
+class VacancyResponse(VacancyShortResponse):
+    """Полная информация о вакансии, включая список откликов."""
+    model_config = ConfigDict(from_attributes=True)
+
+    resumes: Optional[List[ResumeShortResponse]] = []
 
 
 VacancyResponse.model_rebuild()

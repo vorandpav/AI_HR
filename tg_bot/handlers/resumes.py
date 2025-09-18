@@ -24,12 +24,37 @@ async def cmd_apply(message, state: FSMContext):
 
 
 @router.message(ApplyResume.waiting_vacancy, F.text)
-async def apply_vacancy_id(message, state: FSMContext):
+async def apply_vacancy_id(message: types.Message,
+                           state: FSMContext,
+                           backend_client: BackendClient):
     if not message.text.strip().isdigit():
         await message.answer("ID должен быть числом.")
+        await state.clear()
         return
-    await state.update_data(vacancy_id=int(message.text.strip()))
-    await message.answer("Отправьте файл резюме (PDF/DOCX):")
+
+    vacancy_id = int(message.text.strip())
+    username = message.from_user.username
+
+    try:
+        vacancy = await backend_client.get_vacancy(vacancy_id, username)
+        if vacancy['telegram_username'] == username:
+            await message.answer("Вы подаёте резюме на свою же вакансию.\n"
+                                 f"Вакансия: <b>{vacancy['title']}</b>\n"
+                                 f"ID вакансии: <code>{vacancy['id']}</code>\n"
+                                 "Если это ошибка, введите /start\n"
+                                 "Иначе отправьте резюме в формате PDF или DOCX.",
+                                 parse_mode="HTML")
+        else:
+            await message.answer(f"Вакансия: <b>{vacancy['title']}</b>\n"
+                                 f"ID вакансии: <code>{vacancy['id']}</code>\n"
+                                 "Отправьте резюме в формате PDF или DOCX.",
+                                 parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"Ошибка: Вакансия с ID {vacancy_id} не найдена или недоступна.\n{e}")
+        await state.clear()
+        return
+
+    await state.update_data(vacancy_id=vacancy_id)
     await state.set_state(ApplyResume.waiting_file)
 
 
@@ -57,13 +82,16 @@ async def apply_file_doc(
             filename=doc.file_name,
         )
         await message.answer(
-            f"Резюме отправлено!\nID резюме: <code>{res['id']}</code>",
+            f"Резюме отправлено!\n"
+            f"Кандидат: @{res['telegram_username']}\n"
+            f"ID резюме: <code>{res['id']}</code>\n"
+            f"Ожидайте уведомления об анализе соответствия.",
             parse_mode="HTML",
         )
     except Exception as e:
         await message.answer(f"Ошибка при отправке резюме: {e}")
-    finally:
-        await state.clear()
+
+    await state.clear()
 
 
 @router.message(Command("get_status"))
@@ -76,34 +104,41 @@ async def cmd_get_status_start(message, state: FSMContext):
 async def process_resume_id(
         message: types.Message,
         state: FSMContext,
-        backend_client: BackendClient  # <-- Получаем клиент
+        backend_client: BackendClient
 ):
     if not message.text.strip().isdigit():
         await message.answer("ID должно быть числом.")
+        await state.clear()
         return
 
     resume_id = int(message.text.strip())
-    username = message.from_user.username or f"id{message.from_user.id}"
+    username = message.from_user.username
 
     try:
-        resume_data = await backend_client.get_resume(resume_id, username)
-        if not resume_data:
-            await message.answer("Резюме не найдено или у вас нет доступа.")
-            return
-
-        similarity = resume_data.get("similarity")
-        if similarity:
-            sim_text = f"Соответствие: {similarity['score']:.1%}\nКомментарий: {similarity['comment']}"
-        else:
-            sim_text = "Статус: Анализ еще не завершен. Попробуйте позже."
-
+        resume = await backend_client.get_resume(resume_id, username)
+    except Exception as e:
+        await message.answer(f"Ошибка: Резюме с ID {resume_id} не найдено или недоступно.\n{e}")
+        await state.clear()
+        return
+    print(resume)
+    if resume['similarity'] is None:
         await message.answer(
-            f"<b>Статус по резюме ID: {resume_data['id']}</b>\n\n"
-            f"Вакансия ID: {resume_data['vacancy_id']}\n"
-            f"{sim_text}",
+            f"Резюме ID <code>{resume['id']}</code> ещё не проанализировано.\n"
+            "Ожидайте уведомления, когда анализ будет завершён.",
             parse_mode="HTML"
         )
-    except Exception as e:
-        await message.answer(f"Ошибка при запросе статуса: {e}")
-    finally:
-        await state.clear()
+    else:
+        score = resume['similarity']['score'] * 100
+        comment = resume['similarity']['comment']
+        await message.answer(
+            f"Статус резюме ID <code>{resume['id']}</code>:\n"
+            f"Кандидат: @{resume['telegram_username']}\n"
+            f"Вакансия: <b>{vacancy['title']}</b>\n"
+            f"ID вакансии: <code>{vacancy['id']}</code>\n"
+            f"Ссылка на резюме: {resume['file_url']}\n"
+            f"Оценка соответствия вакансии: {score:.2f}%\n"
+            f"Комментарий: {comment}",
+            parse_mode="HTML"
+        )
+
+    await state.clear()
